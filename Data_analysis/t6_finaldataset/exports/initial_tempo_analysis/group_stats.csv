@@ -1,0 +1,3 @@
+direction,n,median_pct,IQR_lo,IQR_hi,W,p,r,n_correct
+speeding up,14,-0.52,-6.65,2.58,42.0,0.5416,0.16,6
+slowing down,9,-3.32,-9.54,2.04,13.0,0.3008,0.34,6

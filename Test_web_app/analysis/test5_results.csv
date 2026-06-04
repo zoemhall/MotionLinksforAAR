@@ -1,0 +1,25 @@
+session_id,participant_id,condition_order,tempo_direction,weight_direction,base_bpm,starting_ratio,in_sync_window,tempo_r,tempo_p,tempo_entrained,cal_cadence,cal_heel_ms,cal_accel,w_cadence,cond_heel_ms,cond_accel,z_heel,z_accel,heel_success,accel_success,weight_success,flagged,flags
+68,30,A-first,speeding_up,decreasing,79.96,0.874,True,-0.209,0.0,False,20.03,,,,,,,,,,,False,"weight_error:insufficient calibration heel contacts (2 valid after duration filter, 7 raw) — thresholds likely miscalibrated"
+70,31,B-first,slowing_down,decreasing,110.97,1.006,True,0.189,0.0,False,,,,,,,,,,,,False,missing_cal_data
+71,32,B-first,slowing_down,increasing,88.17,0.978,True,-0.259,0.0,False,10.01,,,,,,,,,,,False,"weight_error:insufficient calibration heel contacts (2 valid after duration filter, 5 raw) — thresholds likely miscalibrated"
+72,13,A-first,speeding_up,decreasing,94.51,0.975,True,-0.448,0.0,False,58.06,1070.8,1.986,13.61,1100.7,1.995,0.141,0.012,False,True,False,False,
+73,33,B-first,speeding_up,increasing,108.17,1.003,True,0.122,0.0,False,6.01,,,,,,,,,,,False,"merged_no_stage_annotations; weight_error:insufficient calibration heel contacts (0 valid after duration filter, 0 raw) — thresholds likely miscalibrated"
+74,19,B-first,speeding_up,increasing,83.94,0.999,True,0.375,0.0,False,0.0,871.7,,7.36,1248.6,,0.91,,True,,True,False,merged_no_stage_annotations; heel_filter_loss:33%cal/73%w
+75,03,A-first,speeding_up,decreasing,89.55,1.017,True,0.742,0.0,True,0.0,,,,,,,,,,,False,"merged_no_stage_annotations; weight_error:insufficient calibration heel contacts (0 valid after duration filter, 0 raw) — thresholds likely miscalibrated"
+76,34,B-first,speeding_up,decreasing,96.77,0.985,True,0.516,0.0,False,14.03,,,,,,,,,,,False,"merged_no_stage_annotations; weight_error:insufficient calibration heel contacts (0 valid after duration filter, 1 raw) — thresholds likely miscalibrated"
+77,35,A-first,slowing_down,decreasing,101.72,0.91,True,0.376,0.0,False,10.02,,,,,,,,,,,False,"merged_no_stage_annotations; weight_error:insufficient calibration heel contacts (0 valid after duration filter, 0 raw) — thresholds likely miscalibrated"
+78,06,B-first,speeding_up,increasing,90.68,1.002,True,-0.341,0.0,False,14.02,,,,,,,,,,,False,"merged_no_stage_annotations; weight_error:insufficient calibration heel contacts (0 valid after duration filter, 0 raw) — thresholds likely miscalibrated"
+79,36,A-first,speeding_up,decreasing,95.24,0.848,False,-0.386,0.0,False,52.08,1001.9,,8.79,1203.0,,0.546,,False,,False,False,merged_no_stage_annotations
+80,37,B-first,speeding_up,increasing,100.03,0.982,True,0.093,0.0,False,10.02,,,,,,,,,,,False,"merged_no_stage_annotations; weight_error:insufficient calibration heel contacts (0 valid after duration filter, 0 raw) — thresholds likely miscalibrated"
+81,01,B-first,slowing_down,increasing,86.98,1.002,True,-0.38,0.0,False,30.04,845.0,,10.23,1059.9,,0.521,,True,,True,False,merged_no_stage_annotations; heel_filter_loss:38%cal/58%w
+83,05,B-first,speeding_up,increasing,100.84,1.0,True,0.142,0.0,False,0.0,,,,,,,,,,,False,"merged_no_stage_annotations; weight_error:insufficient calibration heel contacts (0 valid after duration filter, 0 raw) — thresholds likely miscalibrated"
+84,09,A-first,slowing_down,increasing,91.37,1.004,True,-0.026,0.0689,False,22.02,993.5,,0.0,,,,,,,,False,merged_no_stage_annotations; heel_filter_loss:41%cal/100%w
+85,11,B-first,speeding_up,decreasing,96.75,0.996,True,0.61,0.0,True,46.03,1130.0,2.379,7.81,,2.499,,0.142,,True,True,False,heel_filter_loss:55%cal/86%w
+86,07,B-first,slowing_down,increasing,108.08,0.976,True,-0.143,0.0,False,16.03,616.7,1.777,45.18,973.7,2.047,0.741,0.468,True,False,False,False,heel_filter_loss:23%cal/54%w
+87,18,A-first,speeding_up,decreasing,93.05,1.021,True,0.215,0.0,False,4.01,1176.3,1.791,6.45,1059.7,,-2.78,,True,,True,False,no_weight_stage_in_merged
+88,38,A-first,slowing_down,decreasing,109.09,0.832,False,0.088,0.0,False,22.06,1144.7,1.629,18.87,1147.6,1.957,0.014,0.431,False,True,False,False,
+89,10,A-first,slowing_down,decreasing,96.85,0.971,True,0.042,0.0078,False,48.06,690.4,2.403,8.97,,,,,,,,False,no_weight_stage_in_merged; heel_filter_loss:13%cal/93%w
+90,39,B-first,speeding_up,decreasing,89.53,0.998,True,-0.02,0.2396,False,28.08,727.1,1.576,18.2,814.0,1.807,0.226,0.34,False,True,False,False,
+91,04,A-first,slowing_down,increasing,,,,,,,,,,,,,,,,,,True,DO_NOT_USE
+92,16,B-first,slowing_down,decreasing,81.65,1.009,True,-0.139,0.0,False,4.01,1159.0,,14.18,,,,,,,,False,merged_no_stage_annotations; heel_filter_loss:9%cal/100%w
+93,40,B-first,speeding_up,increasing,93.02,1.008,True,0.377,0.0,False,10.01,1171.3,,15.81,,,,,,,,False,merged_no_stage_annotations; heel_filter_loss:38%cal/100%w

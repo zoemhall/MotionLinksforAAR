@@ -1,0 +1,10 @@
+#N canvas 763 37 450 415 12;
+#X obj 55 57 adc~ 3;
+#X obj 55 98 lop~ 20;
+#X obj 54 151 snapshot~ 100;
+#X floatatom 55 188 5 0 0 0 - - - 0;
+#X obj 55 231 print sensor_val;
+#X connect 0 0 1 0;
+#X connect 1 0 2 0;
+#X connect 2 0 3 0;
+#X connect 3 0 4 0;

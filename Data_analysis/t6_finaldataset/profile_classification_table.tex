@@ -1,0 +1,61 @@
+% ============================================================
+% Behavioural profile classification criteria — 4 categories
+% Partial profiles are included within their parent category.
+%
+% Requires: \usepackage{booktabs, array}
+% ============================================================
+
+\begin{table}[htbp]
+\centering
+\small
+\setlength{\tabcolsep}{6pt}
+\renewcommand{\arraystretch}{1.5}
+\begin{tabular}{@{} l p{5.6cm} p{4.8cm} @{}}
+\toprule
+\textbf{Category} & \textbf{Classification criteria} & \textbf{Meaning} \\
+\midrule
+
+Consistent influence
+  & $s_c > 0.30$
+    \;\textsc{or}\; $z_\mathrm{mid} > 0.15$
+    \;\textsc{or}\; ($z_\mathrm{opp} > 0.5$ \;\textsc{and}\;
+    ($z_\mathrm{early} > 0.4$ \;\textsc{or}\; $z_\mathrm{mid} > 0.4$))
+  & Cadence moved in the target direction throughout the trial,
+    including partial responses below the unambiguous threshold
+    (compliance score $> 0.30$ or plateau tracking $> 0.15\,\text{SD}$). \\
+
+Impact only from drift phases
+  & ($z_\mathrm{early} > 0.15$ \;\textsc{and}\; $z_\mathrm{drop} > 0.15$)
+    \;\textsc{or}\;
+    ($z_\mathrm{opp} > 0.2$ \;\textsc{and}\; $|z_\mathrm{mid}| < 0.4$
+    \;\textsc{and}\; $z_\mathrm{early} < 0.4$)
+  & Cadence responded to the ramp-in or ramp-out transitions but not
+    the sustained plateau, including weak responses;
+    indicates sensitivity to rate of change rather than level. \\
+
+Subconscious correction
+  & $z_\mathrm{ci} > 0.5$ \;\textsc{and}\; $|z_\mathrm{early}| < 0.5$
+    \;\textsc{and}\; $n_\times \geq 1$
+  & Cadence initially followed the manipulation then actively returned
+    toward baseline before the trial ended. \\
+
+No clear effect
+  & None of the above
+  & No systematic directional response in any phase;
+    cadence fluctuations within natural variability. \\
+
+\bottomrule
+\end{tabular}
+\caption{Behavioural response categories and classification criteria
+         ($n = 23$ tempo sessions).
+         Categories are evaluated in the order shown; the first match is assigned.
+         \textit{Consistent influence} and \textit{Impact only from drift phases}
+         each include both unambiguous and partial responses, yielding counts of
+         8, 8, 1, and 6 respectively.
+         All $z$-scores are in units of each participant's natural cadence
+         standard deviation measured during the weight condition.
+         $z_\mathrm{drop} = z_\mathrm{early} - z_\mathrm{mid}$;
+         $n_\times$ denotes zero-crossings of the deviation-from-target series;
+         $s_c$ is the compliance score ($0 =$ unaffected, $1 =$ on target).}
+\label{tab:profile-criteria}
+\end{table}

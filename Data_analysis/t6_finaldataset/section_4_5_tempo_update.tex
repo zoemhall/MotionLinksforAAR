@@ -1,0 +1,24 @@
+% Replace the current "Within-participant analysis." and
+% "Between-participant analysis." paragraphs in §4.5 with this single paragraph.
+
+\textbf{Tempo condition analysis.}
+Cadence (steps per minute) is derived from heel-strike peaks in the pressure
+signal and evaluated on a rolling 1\,Hz grid.
+Each participant's natural walking pace is estimated individually from buffer
+windows at the boundary of their sessions, scaled to their own baseline rather
+than a fixed population mean.
+The trial is divided into three phases aligned to the audio ramp structure ---
+ramp-in (0--20\%), plateau (20--80\%), and ramp-out (80--100\%) --- and cadence
+deviations in each phase are expressed as z-scores relative to that participant's
+own cadence variability during the weight condition, making individual responses
+comparable regardless of stride consistency.
+Sessions are assigned one of 11 behavioural profiles based on the shape of the
+cadence trajectory, and a continuous influence score ($s \in [0,1]$) summarises
+the magnitude of the largest detected response across any phase.
+The same pipeline is applied to weight-condition data as a false-positive
+benchmark.
+Group-level cadence shift is tested with the Wilcoxon signed-rank test within
+each direction subgroup; Spearman's rank correlation between influence score and
+Agency Aggregate provides the primary test of Hypothesis~1.
+Full algorithmic detail, feature definitions, classification criteria, and
+edge-case handling are provided in Appendix~\ref{app:tempo-pipeline}.

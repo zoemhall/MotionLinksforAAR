@@ -1,0 +1,10 @@
+fastapi>=0.115,<1.0
+uvicorn[standard]>=0.30
+aiosqlite>=0.20
+aiofiles>=24.1
+bleak>=0.22
+pandas>=2.0
+pydantic>=2.0
+python-multipart>=0.0.9
+pyserial>=3.5
+openpyxl>=3.1

@@ -1,0 +1,3580 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title></title>
+  <link rel="stylesheet" href="/static/css/main.css">
+</head>
+<body x-data x-init="$store.session.loadSessions()">
+
+  <!-- App Header -->
+  <header class="app-header">
+    <span class="app-logo"></span>
+    <nav>
+      <a :class="{ active: $store.nav.view === 'dashboard' }"
+         @click="$store.nav.navigate('dashboard'); $store.session.loadSessions()">Dashboard</a>
+      <a :class="{ active: $store.nav.view === 'test_types' }"
+         @click="$store.nav.navigate('test_types')">Test Types</a>
+      <a :class="{ active: $store.nav.view === 'import' }"
+         @click="$store.nav.navigate('import')">Import</a>
+      <a :class="{ active: $store.nav.view === 'diagnostics' }"
+         @click="$store.nav.navigate('diagnostics')">Diagnostics</a>
+    </nav>
+    <span></span>
+  </header>
+
+  <!-- ==================== DASHBOARD ==================== -->
+  <section class="view finder-view" :class="{ active: $store.nav.view === 'dashboard' }" id="view-dashboard"
+           x-data="dashboardData()" x-init="init()">
+
+    <!-- Toolbar -->
+    <div class="finder-toolbar">
+      <button class="btn btn-primary btn-sm" @click="$store.nav.navigate('setup')">+ New Session</button>
+      <button class="btn btn-sm btn-secondary"
+              :class="{ 'btn-primary': editMode }"
+              @click="editMode = !editMode"
+              :title="editMode ? 'Exit edit mode' : 'Enable edit mode'">
+        <span x-show="!editMode">Edit</span>
+        <span x-show="editMode">Done</span>
+      </button>
+      <button class="btn btn-sm btn-secondary" x-show="editMode" @click="exportAll()"
+              title="Flat CSV: one row per session with all questionnaire data">
+        Export All (CSV)
+      </button>
+      <button class="btn btn-sm btn-secondary" x-show="editMode" @click="downloadSummary()"
+              title="Excel workbook with one sheet per test type">
+        Summary.xlsx
+      </button>
+    </div>
+
+    <!-- Finder split layout -->
+    <div class="finder-layout">
+
+      <!-- Sidebar -->
+      <aside class="finder-sidebar">
+        <div class="finder-sidebar-row" :class="{ selected: !selectedTestType && !showingTrash }" @click="closeTrash(); selectRoot()">
+          <span class="finder-label">All Sessions</span>
+        </div>
+        <template x-for="tt in tree" :key="tt.name">
+          <div>
+            <div class="finder-sidebar-row"
+                 :class="{ selected: !showingTrash && selectedTestType && selectedTestType.name === tt.name && !selectedParticipant }"
+                 @click="closeTrash(); selectTestType(tt)">
+              <span class="finder-chevron" :class="{ open: !showingTrash && selectedTestType && selectedTestType.name === tt.name }">›</span>
+              <span class="finder-label" x-text="tt.shortName"></span>
+              <span class="warn-badge" x-show="tt.hasWarning">!</span>
+            </div>
+            <template x-if="!showingTrash && selectedTestType && selectedTestType.name === tt.name">
+              <div>
+                <template x-for="p in tt.participants" :key="p.id">
+                  <div class="finder-sidebar-row finder-indent"
+                       :class="{ selected: selectedParticipant && selectedParticipant.id === p.id }"
+                       @click="selectParticipant(tt, p)">
+                    <span class="finder-label" x-text="p.id"></span>
+                    <span class="warn-badge" x-show="p.hasWarning">!</span>
+                  </div>
+                </template>
+              </div>
+            </template>
+          </div>
+        </template>
+
+        <!-- Trash -->
+        <div class="finder-sidebar-divider"></div>
+        <div class="finder-sidebar-row finder-trash-row" :class="{ selected: showingTrash }"
+             @click="openTrash()">
+          <span class="finder-label">Trash</span>
+          <span class="warn-badge" x-show="trashSessions.length > 0" x-text="trashSessions.length"
+                style="background: var(--text-muted); min-width: 18px; width: auto; padding: 0 4px; border-radius: 9px;"></span>
+        </div>
+      </aside>
+
+      <!-- Main panel -->
+      <div class="finder-main">
+
+        <!-- Breadcrumb (hidden in trash view) -->
+        <div class="finder-breadcrumb" x-show="!showingTrash">
+          <template x-for="(crumb, i) in breadcrumb" :key="i">
+            <span>
+              <span x-show="i > 0" class="breadcrumb-sep">/</span>
+              <span class="breadcrumb-item" :class="{ last: i === breadcrumb.length - 1 }"
+                    @click="crumb.action()" x-text="crumb.label"></span>
+            </span>
+          </template>
+        </div>
+
+        <!-- Trash panel -->
+        <div x-show="showingTrash">
+          <div class="flex-between mb-md">
+            <h3 style="margin:0;">Trash</h3>
+            <button class="btn btn-sm btn-danger" x-show="trashSessions.length > 0"
+                    @click="emptyTrash()">Empty Trash</button>
+          </div>
+          <div class="finder-empty" x-show="trashSessions.length === 0">
+            Trash is empty.
+          </div>
+          <table class="session-table" x-show="trashSessions.length > 0">
+            <thead>
+              <tr><th>Participant</th><th>Test Type</th><th>Date</th><th>Status</th><th></th></tr>
+            </thead>
+            <tbody>
+              <template x-for="s in trashSessions" :key="s.session_id">
+                <tr>
+                  <td x-text="s.participant_id"></td>
+                  <td x-text="s.test_type_name || '-'"></td>
+                  <td x-text="formatDate(s.session_date)"></td>
+                  <td>
+                    <span class="status-dot" :class="s.status"></span>
+                    <span x-text="s.status"></span>
+                  </td>
+                  <td style="white-space:nowrap;">
+                    <button class="btn btn-sm btn-secondary" @click="restoreSession(s.session_id)">Restore</button>
+                    <button class="btn btn-sm btn-danger" @click="permanentDelete(s.session_id, s.participant_id)">Delete</button>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Empty state (normal view) -->
+        <div class="finder-empty" x-show="!showingTrash && $store.session.sessions.length === 0">
+          No sessions yet. Click <strong>+ New Session</strong> to begin.
+        </div>
+
+        <!-- Folder grid (root = test types, test type level = participants) -->
+        <!-- Root level: test-type folder grid -->
+        <div class="finder-grid" x-show="!showingTrash && !selectedTestType && $store.session.sessions.length > 0">
+          <template x-for="item in visibleItems" :key="item.name">
+            <div class="finder-item-folder" :class="{ 'finder-item-edit': editMode }"
+                 @click="!editMode && item.action()">
+              <img class="finder-item-icon" :src="item.icon" alt="">
+              <div class="finder-item-body">
+                <div class="finder-item-name" x-text="item.name"></div>
+                <div class="finder-item-meta" x-text="item.meta"></div>
+              </div>
+              <span class="warn-badge" x-show="item.hasWarning && !editMode">!</span>
+              <button x-show="editMode" class="btn btn-sm btn-danger folder-delete-btn"
+                      @click.stop="deleteFolder(item.sessions, item.name)">Delete</button>
+            </div>
+          </template>
+        </div>
+
+        <!-- Test-type level: flat session list with Participant column -->
+        <div x-show="!showingTrash && selectedTestType && !selectedParticipant && $store.session.sessions.length > 0">
+
+          <!-- Randomisation balance bars (only for test types with both conditions) -->
+          <template x-if="randStats">
+            <div style="margin-bottom:0.85rem; background:var(--bg-secondary); border:1px solid var(--border); border-radius:8px; padding:0.65rem 0.85rem;">
+              <div class="text-sm" style="font-weight:600; color:var(--text-muted); margin-bottom:0.55rem; text-transform:uppercase; letter-spacing:0.05em;">
+                Randomisation balance — <span x-text="randStats.n"></span> sessions
+              </div>
+              <template x-for="bar in [
+                { label: 'Condition order', leftLabel: 'A-first',      leftN: randStats.aFirst,   rightLabel: 'B-first',      rightN: randStats.bFirst,   leftColor: '#3B82F6', rightColor: '#8B5CF6' },
+                { label: 'Tempo (A)',       leftLabel: 'speeding up',  leftN: randStats.speedUp,  rightLabel: 'slowing down', rightN: randStats.slowDown, leftColor: '#F59E0B', rightColor: '#10B981' },
+                { label: 'Weight (B)',      leftLabel: 'increasing',   leftN: randStats.heavier,  rightLabel: 'decreasing',   rightN: randStats.lighter,  leftColor: '#EF4444', rightColor: '#6366F1' },
+              ]" :key="bar.label">
+                <div style="margin-bottom:0.45rem;">
+                  <div style="display:flex; justify-content:space-between; font-size:0.75rem; color:var(--text-muted); margin-bottom:0.2rem;">
+                    <span>
+                      <span :style="`color:${bar.leftColor}; font-weight:600;`" x-text="bar.leftLabel"></span>
+                      <span x-text="' ' + bar.leftN + ' (' + Math.round(bar.leftN/randStats.n*100) + '%)'"></span>
+                    </span>
+                    <span style="font-weight:600; color:var(--text);" x-text="bar.label"></span>
+                    <span>
+                      <span x-text="bar.rightN + ' (' + Math.round(bar.rightN/randStats.n*100) + '%) '"></span>
+                      <span :style="`color:${bar.rightColor}; font-weight:600;`" x-text="bar.rightLabel"></span>
+                    </span>
+                  </div>
+                  <div style="height:10px; border-radius:5px; overflow:hidden; display:flex; background:var(--border);">
+                    <div :style="`width:${Math.round(bar.leftN/randStats.n*100)}%; background:${bar.leftColor}; transition:width 0.3s;`"></div>
+                    <div :style="`flex:1; background:${bar.rightColor};`"></div>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </template>
+
+          <table class="session-table">
+            <thead>
+              <tr>
+                <th>Participant</th>
+                <th>Started</th>
+                <th>Status</th>
+                <th>Condition</th>
+                <th x-show="selectedTestType.has_imu_dump || selectedTestType.has_calibration_files || selectedTestType.has_pressure_merge || selectedTestType.has_consciousness_check || selectedTestType.has_overall_ratings">Data</th>
+                <th>Tags</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="s in testTypeSessions" :key="s.session_id">
+                <tr @click="!editMode && openSession(s)" :class="{ warn: sessionHasWarning(s), excluded: s.is_excluded }">
+                  <td><strong x-text="s.participant_id"></strong></td>
+                  <td x-text="formatDate(s.session_date)"></td>
+                  <td>
+                    <span class="status-dot" :class="s.status"></span>
+                    <span x-text="s.status"></span>
+                    <span class="warn-badge" x-show="sessionHasWarning(s)" style="margin-left:0.3rem" :title="sessionWarningReason(s)">!</span>
+                    <!-- Influence outcome dots (tempo + weight) -->
+                    <span class="influence-dot" :class="s.tempo_outcome"
+                          x-show="s.tempo_outcome && s.tempo_outcome !== 'unreviewed'"
+                          :title="'Tempo: ' + s.tempo_outcome"></span>
+                    <span class="influence-dot" :class="s.weight_outcome"
+                          x-show="s.weight_outcome && s.weight_outcome !== 'unreviewed'"
+                          :title="'Weight: ' + s.weight_outcome"></span>
+                  </td>
+                  <td x-text="s.condition_order || '-'"></td>
+                  <!-- Data completeness indicators (driven by test type config) -->
+                  <td x-show="selectedTestType.has_imu_dump || selectedTestType.has_calibration_files || selectedTestType.has_pressure_merge || selectedTestType.has_consciousness_check || selectedTestType.has_overall_ratings"
+                      style="white-space:nowrap; font-size:0.78rem; letter-spacing:0.1em; display:flex; gap:3px; align-items:center; flex-wrap:wrap;">
+                    <!-- IMU dump file -->
+                    <template x-if="selectedTestType.has_imu_dump">
+                      <span :title="s.imu_raw_path ? 'IMU: uploaded' : 'IMU: not uploaded'"
+                            :style="s.imu_raw_path ? 'color:var(--success)' : 'color:#D1D5DB'">IMU</span>
+                    </template>
+                    <!-- Pressure CSV -->
+                    <template x-if="selectedTestType.has_pressure_merge">
+                      <span :title="s.pressure_raw_path ? 'Pressure: uploaded' : 'Pressure: not uploaded'"
+                            :style="s.pressure_raw_path ? 'color:var(--success)' : 'color:#D1D5DB'">P</span>
+                    </template>
+                    <!-- Timestamp alignment indicator (shown when both IMU + pressure files exist) -->
+                    <template x-if="selectedTestType.has_imu_dump && selectedTestType.has_pressure_merge && s.imu_raw_path && s.pressure_raw_path">
+                      <span style="cursor:help; font-size:0.85em;"
+                        :title="!tsChecks[s.session_id]
+                          ? 'Checking timestamp alignment…'
+                          : tsChecks[s.session_id].ok
+                            ? ('Timestamps aligned ✓  IMU ' + tsChecks[s.session_id].imu_range_s[0] + '–' + tsChecks[s.session_id].imu_range_s[1] + 's · Pressure ' + tsChecks[s.session_id].pressure_range_s[0] + '–' + tsChecks[s.session_id].pressure_range_s[1] + 's · ' + tsChecks[s.session_id].overlap_pct + '% overlap')
+                            : tsChecks[s.session_id].issues.map(i => i.msg).join(' | ')"
+                        :style="!tsChecks[s.session_id]
+                          ? 'color:#D1D5DB'
+                          : tsChecks[s.session_id].ok
+                            ? 'color:var(--success)'
+                            : tsChecks[s.session_id].issues.some(i => i.level === 'error') ? 'color:#EF4444' : 'color:#F59E0B'">⟷</span>
+                    </template>
+                    <!-- 10s calibration files -->
+                    <template x-if="selectedTestType.has_calibration_files">
+                      <span>
+                        <span :title="s.cal_file_1_path ? 'Cal 1: uploaded' : 'Cal 1: not uploaded'"
+                              :style="s.cal_file_1_path ? 'color:var(--success)' : 'color:#D1D5DB'">C1</span>
+                        <span :title="s.cal_file_2_path ? 'Cal 2: uploaded' : 'Cal 2: not uploaded'"
+                              :style="s.cal_file_2_path ? 'color:var(--success)' : 'color:#D1D5DB'"> C2</span>
+                        <span :title="s.cal_file_3_path ? 'Cal 3: uploaded' : 'Cal 3: not uploaded'"
+                              :style="s.cal_file_3_path ? 'color:var(--success)' : 'color:#D1D5DB'"> C3</span>
+                      </span>
+                    </template>
+                    <!-- Questionnaire -->
+                    <template x-if="selectedTestType.has_consciousness_check || selectedTestType.has_overall_ratings">
+                      <span :title="s.status === 'complete' ? 'Questionnaire: complete' : (s.consciousness_count > 0 || s.has_ratings ? 'Questionnaire: partial' : 'Questionnaire: not submitted')"
+                            :style="s.status === 'complete' ? 'color:var(--success)' : (s.consciousness_count > 0 || s.has_ratings ? 'color:#F59E0B' : 'color:#D1D5DB')">Q</span>
+                    </template>
+                  </td>
+                  <td>
+                    <span class="tag-flag" x-show="s.tag_count > 0" :title="`${s.tag_count} tag(s)`">
+                      <span x-text="s.tag_count"></span> tag<span x-show="s.tag_count !== 1">s</span>
+                    </span>
+                  </td>
+                  <td @click.stop>
+                    <button class="btn btn-sm btn-secondary" @click="viewDetail(s)">View</button>
+                    <template x-if="editMode">
+                      <a class="btn btn-sm btn-secondary" x-show="s.merged_path"
+                         :href="'/api/export/session/' + s.session_id + '/csv'">Download</a>
+                    </template>
+                    <template x-if="editMode">
+                      <button class="btn btn-sm btn-danger"
+                              @click="deleteSession(s.session_id, s.participant_id)">Delete</button>
+                    </template>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Participant level: session list (single participant) -->
+        <div x-show="!showingTrash && selectedParticipant && $store.session.sessions.length > 0">
+          <table class="session-table">
+            <thead>
+              <tr>
+                <th>Started</th>
+                <th>Status</th>
+                <th>Condition</th>
+                <th>Tags</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="s in (selectedParticipant ? selectedParticipant.sessions : [])" :key="s.session_id">
+                <tr @click="!editMode && openSession(s)" :class="{ warn: sessionHasWarning(s), excluded: s.is_excluded }">
+                  <td x-text="formatDate(s.session_date)"></td>
+                  <td>
+                    <span class="status-dot" :class="s.status"></span>
+                    <span x-text="s.status"></span>
+                    <span class="warn-badge" x-show="sessionHasWarning(s)" style="margin-left:0.3rem" :title="sessionWarningReason(s)">!</span>
+                    <span class="influence-dot" :class="s.tempo_outcome"
+                          x-show="s.tempo_outcome && s.tempo_outcome !== 'unreviewed'"
+                          :title="'Tempo: ' + s.tempo_outcome"></span>
+                    <span class="influence-dot" :class="s.weight_outcome"
+                          x-show="s.weight_outcome && s.weight_outcome !== 'unreviewed'"
+                          :title="'Weight: ' + s.weight_outcome"></span>
+                  </td>
+                  <td x-text="s.condition_order || '-'"></td>
+                  <td>
+                    <span class="tag-flag" x-show="s.tag_count > 0" :title="`${s.tag_count} tag(s)`">
+                      <span x-text="s.tag_count"></span> tag<span x-show="s.tag_count !== 1">s</span>
+                    </span>
+                  </td>
+                  <td @click.stop>
+                    <button class="btn btn-sm btn-secondary" @click="viewDetail(s)">View</button>
+                    <template x-if="editMode">
+                      <a class="btn btn-sm btn-secondary" x-show="s.merged_path"
+                         :href="'/api/export/session/' + s.session_id + '/csv'">Download</a>
+                    </template>
+                    <template x-if="editMode">
+                      <button class="btn btn-sm btn-danger"
+                              @click="deleteSession(s.session_id, s.participant_id)">Delete</button>
+                    </template>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+
+      </div><!-- /finder-main -->
+    </div><!-- /finder-layout -->
+  </section>
+
+  <!-- ==================== TEST TYPES ADMIN ==================== -->
+  <section class="view" :class="{ active: $store.nav.view === 'test_types' }" id="view-test-types"
+           x-data="testTypesData()" x-init="init()">
+    <div class="flex-between mb-md">
+      <h2>Test Types</h2>
+      <button class="btn btn-primary" @click="newType()">+ New Test Type</button>
+    </div>
+
+    <p class="text-sm text-muted mb-md">
+      Each test type is a preset of which stages and questionnaires a session
+      will run. Sessions snapshot the flags at creation, so editing a test
+      type later won't change past sessions.
+    </p>
+
+    <!-- Editor (visible when adding/editing) -->
+    <div class="card" x-show="editing">
+      <h3 x-text="editing?.test_type_id ? 'Edit Test Type' : 'New Test Type'"></h3>
+      <div class="form-group">
+        <label>Name</label>
+        <input type="text" x-model="editing.name" placeholder="e.g. Test 4: Audio with feedback">
+      </div>
+      <div class="form-group">
+        <label>Description</label>
+        <textarea x-model="editing.description" placeholder="Short summary of what this test does"></textarea>
+      </div>
+      <div class="form-group">
+        <label>Target participants <span class="text-muted text-sm">(0 = no goal set)</span></label>
+        <input type="number" x-model.number="editing.target_participants" min="0" max="999" style="width:100px;">
+      </div>
+
+      <h4 class="mt-md">Stages enabled in the live view</h4>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
+        <label><input type="checkbox" x-model="editing.has_calibration_b">         Calibration stage</label>
+        <label><input type="checkbox" x-model="editing.has_audio_familiarisation_b"> Audio familiarisation</label>
+        <label><input type="checkbox" x-model="editing.has_condition_1_b">          Condition 1 (first by order)</label>
+        <label><input type="checkbox" x-model="editing.has_condition_2_b">          Condition 2 (second by order)</label>
+      </div>
+
+      <h4 class="mt-md">Post-session features</h4>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
+        <label><input type="checkbox" x-model="editing.has_calibration_files_b">   Cal files (3 × 10s pressure CSVs)</label>
+        <label><input type="checkbox" x-model="editing.has_imu_dump_b">             IMU dump from insole flash</label>
+        <label><input type="checkbox" x-model="editing.has_pressure_merge_b">       Pressure CSV upload + merge</label>
+        <label><input type="checkbox" x-model="editing.has_consciousness_check_b">  Consciousness check questionnaire</label>
+        <label><input type="checkbox" x-model="editing.has_overall_ratings_b">      Overall ratings (agency / UEQ-S / ARI)</label>
+      </div>
+
+      <div class="alert alert-error mt-md" x-show="error" x-text="error"></div>
+
+      <div class="flex gap-sm mt-md">
+        <button class="btn btn-secondary" @click="cancelEdit()">Cancel</button>
+        <button class="btn btn-primary" @click="saveType()" :disabled="!editing.name.trim() || saving">
+          <span x-show="!saving">Save</span>
+          <span x-show="saving">Saving…</span>
+        </button>
+      </div>
+    </div>
+
+    <table class="session-table" x-show="testTypes.length > 0">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Stages</th>
+          <th>Questionnaire</th>
+          <th>Goal</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        <template x-for="t in testTypes" :key="t.test_type_id">
+          <tr>
+            <td>
+              <strong x-text="t.name"></strong>
+              <div class="text-sm text-muted" x-show="t.description" x-text="t.description"></div>
+            </td>
+            <td class="text-sm">
+              <span x-show="t.has_calibration">cal</span>
+              <span x-show="t.has_audio_familiarisation"> · audio</span>
+              <span x-show="t.has_condition_1"> · cond1</span>
+              <span x-show="t.has_condition_2"> · cond2</span>
+            </td>
+            <td class="text-sm">
+              <span x-show="t.has_imu_dump">IMU</span>
+              <span x-show="t.has_pressure_merge"> · merge</span>
+              <span x-show="t.has_consciousness_check"> · consciousness</span>
+              <span x-show="t.has_overall_ratings"> · ratings</span>
+            </td>
+            <td class="text-sm" x-text="t.target_participants > 0 ? t.target_participants + ' participants' : '—'"></td>
+            <td>
+              <button class="btn btn-sm btn-secondary" @click="editType(t)">Edit</button>
+              <button class="btn btn-sm btn-danger" @click="archiveType(t)">Archive</button>
+            </td>
+          </tr>
+        </template>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ==================== SESSION SETUP ==================== -->
+  <section class="view" :class="{ active: $store.nav.view === 'setup' }" id="view-setup"
+           x-data="setupData()">
+    <h2 class="mb-md">New Session</h2>
+
+    <div class="card">
+      <h3>Test Type</h3>
+      <p class="text-sm text-muted mb-md">
+        Determines which stages and questionnaires this session will run.
+        Manage presets in the <a href="#/test_types">Test Types</a> page.
+      </p>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Test Type <span class="text-sm" style="color: var(--danger);">*</span></label>
+          <select x-model.number="testTypeId">
+            <option :value="null">Select a test type...</option>
+            <template x-for="t in testTypes" :key="t.test_type_id">
+              <option :value="t.test_type_id" x-text="t.name"></option>
+            </template>
+          </select>
+        </div>
+      </div>
+      <!-- Show enabled flags for transparency -->
+      <div class="text-sm text-muted" x-show="selectedTestType" style="margin-top: 6px;">
+        Includes:
+        <template x-for="f in testTypeFlagPills" :key="f.label">
+          <span x-show="f.on" style="display: inline-block; padding: 2px 8px; margin: 2px;
+                                     background: #DCFCE7; color: #166534; border-radius: 10px;
+                                     font-size: 0.75rem;" x-text="f.label"></span>
+        </template>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Participant</h3>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Participant ID (01-35) <span class="text-sm" style="color: var(--danger);">*</span></label>
+          <input type="text" x-model="participantId" placeholder="01"
+                 maxlength="2">
+        </div>
+      </div>
+
+      <div class="alert alert-success mt-md" x-show="priorSessions.length > 0">
+        <strong x-text="participantId"></strong> has completed
+        <span x-text="priorSessions.length"></span> prior session<span x-show="priorSessions.length > 1">s</span>:
+        <template x-for="ps in priorSessions" :key="ps.session_id">
+          <span style="margin-left: 0.5rem;">
+            <span class="status-dot" :class="ps.status"></span>
+            <span x-text="ps.test_type_name || '-'"></span>
+            (<span x-text="ps.status"></span>)
+          </span>
+        </template>
+      </div>
+    </div>
+
+    <!-- Condition assignment shown only when the test type runs conditions -->
+    <div class="card" x-show="testTypeRunsConditions">
+      <h3>
+        Condition Assignment
+        <button class="btn btn-sm btn-secondary" style="margin-left: 0.5rem;" @click="randomize()">Re-randomize</button>
+      </h3>
+      <p class="text-sm text-muted mb-md">Randomly assigned. Change any field to override.</p>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Condition Order</label>
+          <select x-model="conditionOrder">
+            <option value="A-first">A first (Tempo then Weight)</option>
+            <option value="B-first">B first (Weight then Tempo)</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Condition A: Tempo Direction</label>
+          <select x-model="tempoDirection">
+            <option value="speeding_up">Speeding up</option>
+            <option value="slowing_down">Slowing down</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Condition B: Weight Direction</label>
+          <select x-model="weightDirection">
+            <option value="increasing">Increasing</option>
+            <option value="decreasing">Decreasing</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>
+        Demographics
+        <span x-show="!demographicsExist" class="text-sm text-muted">(first session for this participant)</span>
+      </h3>
+
+      <!-- Autofilled banner when demographics came from a prior session -->
+      <div class="alert alert-warning mb-md" x-show="demographicsExist">
+        <strong>Autofilled from prior session.</strong> Review and edit if needed.
+      </div>
+
+      <div class="form-row">
+        <div class="form-group" :class="{ 'autofilled': demographicsExist && shoeSize }">
+          <label>Shoe Size (UK) <span class="text-sm" style="color: var(--danger);">*</span></label>
+          <input type="text" x-model="shoeSize" placeholder="e.g. 9 or 9.5">
+        </div>
+        <div class="form-group" :class="{ 'autofilled': demographicsExist && insoleSize }">
+          <label>Insole Size <span class="text-sm" style="color: var(--danger);">*</span></label>
+          <select x-model="insoleSize">
+            <option value="">Select...</option>
+            <option value="S">S</option>
+            <option value="M">M</option>
+            <option value="L">L</option>
+          </select>
+        </div>
+        <div class="form-group" :class="{ 'autofilled': demographicsExist && age }">
+          <label>Age <span class="text-sm" style="color: var(--danger);">*</span></label>
+          <input type="number" x-model.number="age" placeholder="e.g. 25" min="18" max="99">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group" :class="{ 'autofilled': demographicsExist && gender }">
+          <label>Gender <span class="text-sm" style="color: var(--danger);">*</span></label>
+          <select x-model="genderChoice" @change="onGenderChange()">
+            <option value="">Select...</option>
+            <option value="Male">Male</option>
+            <option value="Female">Female</option>
+            <option value="Prefer not to say">Prefer not to say</option>
+            <option value="Other">Other (specify)</option>
+          </select>
+        </div>
+        <div class="form-group" x-show="genderChoice === 'Other'" style="flex: 2;">
+          <label>Specify</label>
+          <input type="text" x-model="genderOther" placeholder="e.g. non-binary">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group" :class="{ 'autofilled': demographicsExist && injuries }" style="flex: 2;">
+          <label>Injuries / Notes about participant <span class="text-sm" style="color: var(--danger);">*</span></label>
+          <input type="text" x-model="injuries" placeholder="e.g. 'none' or 'right leg shorter by 1cm'">
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Session Notes (optional)</h3>
+      <div class="form-group">
+        <label>Notes on setup</label>
+        <textarea x-model="notesSetup" placeholder="e.g. sensor placement, calibration quirks, hardware tweaks"></textarea>
+      </div>
+      <div class="form-group">
+        <label>Notes on use</label>
+        <textarea x-model="notesUse" placeholder="e.g. participant comfort, walking style observations"></textarea>
+      </div>
+      <div class="form-group">
+        <label>Notes on data</label>
+        <textarea x-model="notesData" placeholder="e.g. dropouts, glitches, anything to consider during analysis"></textarea>
+      </div>
+      <div class="form-group">
+        <label>General notes</label>
+        <textarea x-model="notes" placeholder="catch-all"></textarea>
+      </div>
+    </div>
+
+    <div class="alert alert-error" x-show="error" x-text="error"></div>
+
+    <div class="alert alert-warning" x-show="!canCreate && missingFields.length > 0" style="margin-bottom: 0.75rem;">
+      Required before starting:
+      <strong x-text="missingFields.join(', ')"></strong>
+    </div>
+
+    <div class="flex gap-sm">
+      <button class="btn btn-secondary" @click="$store.nav.navigate('dashboard')">Cancel</button>
+      <button class="btn btn-primary" @click="createSession()" :disabled="!canCreate || creating">
+        <span x-show="!creating">Create & Start Session</span>
+        <span x-show="creating">Creating...</span>
+      </button>
+    </div>
+  </section>
+
+  <!-- ==================== LIVE SESSION ==================== -->
+  <section class="view live-view" :class="{ active: $store.nav.view === 'live' }" id="view-live"
+           x-data="liveSessionData()" x-init="$watch('$store.nav.view', v => { if(v==='live') init(); else cleanup(); })">
+    <div class="view-inner">
+      <!-- Session bar -->
+      <div class="session-bar" :style="{ background: currentStage?.color + '40' }">
+        <div style="display:flex; flex-direction:column; gap:2px;">
+          <span class="ble-badge" :class="$store.session.bleStatus">
+            <span class="dot"></span>
+            <span x-text="$store.session.bleStatus"></span>
+          </span>
+          <span x-show="$store.session.latency" class="latency-badge">
+            <span x-text="$store.session.latency?.current_ms"></span>ms
+            <span class="latency-detail">avg <span x-text="$store.session.latency?.avg_ms"></span> · min <span x-text="$store.session.latency?.min_ms"></span> · max <span x-text="$store.session.latency?.max_ms"></span></span>
+          </span>
+        </div>
+        <div class="session-info" x-show="$store.session.currentSession">
+          <span x-text="$store.session.currentSession?.participant_id"></span>
+        </div>
+        <div class="phase-display" :style="{ color: currentStage?.color || '#9CA3AF' }">
+          <span x-text="currentStage?.label || 'Ready'"></span>
+        </div>
+        <div class="elapsed">
+          <span x-show="stageTimerStr" x-text="stageTimerStr"
+                :style="{ color: stageTimeUp ? 'var(--warning)' : 'inherit' }"></span>
+        </div>
+      </div>
+
+      <!-- Stage progress bar -->
+      <div style="display: flex; gap: 3px; margin-bottom: 0.5rem;" x-show="$store.session.isRecording || isPaused">
+        <template x-for="(stage, idx) in stages" :key="idx">
+          <div style="flex: 1; height: 6px; border-radius: 3px; transition: background 0.3s;"
+               :style="{
+                 background: idx < stageIndex ? stage.color :
+                             idx === stageIndex ? stage.color + 'AA' : '#374151'
+               }"></div>
+        </template>
+      </div>
+
+      <!-- Flash-buffer mode info panel (replaces live chart since this app no longer holds BLE) -->
+      <div class="chart-container" style="display: flex; align-items: center; justify-content: center; padding: 2rem;">
+        <div style="text-align: center; color: var(--text-muted); max-width: 520px;">
+          <div style="font-size: 1.1rem; color: var(--text-light); margin-bottom: 0.5rem;">
+            Recording handled by insole flash storage
+          </div>
+          <div class="text-sm">
+            Max/MSP holds the BLE connection for real-time audio. Each insole independently
+            logs IMU + pressure to its own flash while connected. After this session ends,
+            plug each insole into the laptop and use <strong>Step 1: Dump IMU</strong> on the
+            post-session screen.
+          </div>
+          <div class="text-sm mt-md">
+            Verify Max audio is responding to footsteps before starting and at every stage transition.
+          </div>
+        </div>
+      </div>
+
+      <!-- Pre-session: Clear IMU flash (only for sessions that use IMU) -->
+      <template x-if="!$store.session.isRecording && !isPaused && $store.session.currentSession?.has_imu_dump">
+        <div x-data="{
+               ports: [], selectedPort: '', loadingPorts: false,
+               busy: false, error: null,
+               cleared: { L: false, R: false },
+               dismissed: false,
+               get bothCleared() { return this.cleared.L && this.cleared.R; },
+               get anyCleared() { return this.cleared.L || this.cleared.R; },
+               async loadPorts() {
+                 this.loadingPorts = true;
+                 try {
+                   const ps = await api.get('/api/imu/ports');
+                   this.ports = ps;
+                   if (!this.selectedPort) {
+                     const c = ps.find(p =>
+                       (p.device||'').toLowerCase().includes('usbmodem') ||
+                       (p.device||'').toLowerCase().includes('com'));
+                     if (c) this.selectedPort = c.device;
+                   }
+                 } catch(e) { this.error = e.message; }
+                 finally { this.loadingPorts = false; }
+               },
+               async clearInsole(side) {
+                 if (!this.selectedPort) { this.error = 'Select a port first.'; return; }
+                 const label = side === 'L' ? 'Left' : 'Right';
+                 if (!confirm(`Send CLEAR to the ${label} insole at ${this.selectedPort}?\n\nThis wipes any previously recorded data from flash. Only do this immediately before a new session.`)) return;
+                 this.busy = side; this.error = null;
+                 try {
+                   await api.post('/api/imu/clear', { port: this.selectedPort, baud: 921600 });
+                   this.cleared[side] = true;
+                 } catch(e) { this.error = `CLEAR failed: ${e.message}`; }
+                 finally { this.busy = false; }
+               },
+             }" x-init="loadPorts()"
+             x-show="!dismissed"
+             style="background:#1e293b; border:1px solid #f59e0b; border-radius:8px; padding:1rem; margin-bottom:0.75rem;">
+          <!-- Header -->
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.6rem;">
+            <div style="font-weight:700; color:#fbbf24; font-size:0.95rem;">⚠ Before you start — clear the insole flash</div>
+            <button @click="dismissed=true" style="background:none;border:none;cursor:pointer;color:#6B7280;font-size:1.1rem;padding:0;" title="Dismiss (only if already cleared)">✕</button>
+          </div>
+          <!-- Step list -->
+          <ol style="margin:0 0 0.75rem 1.1rem; padding:0; color:#cbd5e1; font-size:0.83rem; line-height:1.7;">
+            <li>Plug each insole into the laptop via USB.</li>
+            <li>Select the port below and click <strong style="color:#fbbf24;">CLEAR</strong> for each insole.</li>
+            <li>Unplug both insoles when done.</li>
+            <li>Start the session — insoles will record fresh data to flash via BLE.</li>
+          </ol>
+          <!-- Port row -->
+          <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap; margin-bottom:0.6rem;">
+            <select x-model="selectedPort"
+                    style="flex:1; min-width:180px; background:#0f172a; color:#f1f5f9; border:1px solid #374151; border-radius:5px; padding:0.35rem 0.5rem; font-size:0.83rem;">
+              <option value="">— select USB port —</option>
+              <template x-for="p in ports" :key="p.device">
+                <option :value="p.device" x-text="p.device + (p.description ? ' · ' + p.description : '')"></option>
+              </template>
+            </select>
+            <button class="btn btn-sm btn-secondary" @click="loadPorts()" :disabled="loadingPorts" style="white-space:nowrap;">
+              <span x-show="!loadingPorts">⟳ Refresh</span>
+              <span x-show="loadingPorts">…</span>
+            </button>
+          </div>
+          <!-- CLEAR buttons -->
+          <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+            <button class="btn btn-sm" @click="clearInsole('L')" :disabled="!selectedPort || busy"
+                    :style="cleared.L ? 'background:#16a34a;color:#fff;border-color:#16a34a;' : 'background:#b45309;color:#fff;border-color:#b45309;'"
+                    style="font-weight:600;">
+              <span x-show="busy === 'L'">Clearing…</span>
+              <span x-show="busy !== 'L' && !cleared.L">CLEAR Left insole</span>
+              <span x-show="cleared.L">✓ Left cleared</span>
+            </button>
+            <button class="btn btn-sm" @click="clearInsole('R')" :disabled="!selectedPort || busy"
+                    :style="cleared.R ? 'background:#16a34a;color:#fff;border-color:#16a34a;' : 'background:#b45309;color:#fff;border-color:#b45309;'"
+                    style="font-weight:600;">
+              <span x-show="busy === 'R'">Clearing…</span>
+              <span x-show="busy !== 'R' && !cleared.R">CLEAR Right insole</span>
+              <span x-show="cleared.R">✓ Right cleared</span>
+            </button>
+          </div>
+          <!-- Error + success states -->
+          <div x-show="error" style="margin-top:0.5rem; color:#f87171; font-size:0.82rem;" x-text="error"></div>
+          <div x-show="bothCleared" style="margin-top:0.5rem; color:#4ade80; font-size:0.83rem; font-weight:600;">
+            ✓ Both insoles cleared — unplug USB, then start the session below.
+          </div>
+          <div x-show="!ports.length && !loadingPorts" style="margin-top:0.5rem; color:#94a3b8; font-size:0.82rem;">
+            No USB ports detected. Plug in an insole or click Refresh. You can also dismiss this and clear manually.
+          </div>
+        </div>
+      </template>
+
+      <!-- Start session (shown before timer flow begins) -->
+      <div x-show="!$store.session.isRecording && !isPaused" style="text-align: center; padding: 1rem 0;">
+        <button class="btn btn-success btn-full" style="padding: 0.9rem; font-size: 1rem; font-weight: 700; letter-spacing: 0.05em;"
+                @click="startRecording()" :disabled="starting">
+          <span x-show="!starting">START SESSION TIMER</span>
+          <span x-show="starting">STARTING…</span>
+        </button>
+      </div>
+
+      <!-- Stage controls (when recording) -->
+      <div x-show="$store.session.isRecording || isPaused">
+        <!-- Stage event warning banner (shown when an event POST fails) -->
+        <div x-show="stageEventWarning"
+             style="background:#fef3c7; border:1px solid #f59e0b; color:#92400e; padding:0.45rem 0.75rem; border-radius:6px; font-size:0.82rem; margin-bottom:0.5rem; display:flex; justify-content:space-between; align-items:flex-start; gap:0.5rem;">
+          <span>⚠ <span x-text="stageEventWarning"></span></span>
+          <button @click="stageEventWarning=null" style="background:none;border:none;cursor:pointer;font-size:1.1rem;line-height:1;padding:0;color:#92400e;flex-shrink:0;">✕</button>
+        </div>
+        <!-- Current stage info + next stage button -->
+        <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+          <div style="flex: 1; font-size: 0.85rem; color: var(--text-muted);">
+            Stage <span x-text="stageIndex + 1"></span> of <span x-text="stages.length"></span>
+            <span x-show="stageTimeUp && !currentStage?.autoAdvance" style="color: var(--warning); margin-left: 0.5rem;">
+              (guide time reached)
+            </span>
+            <span x-show="currentStage?.autoAdvance && !stageTimeUp" style="margin-left: 0.5rem; font-size: 0.8rem;">
+              auto <span x-text="stageTimerStr"></span>
+            </span>
+          </div>
+          <button class="btn btn-secondary btn-sm"
+                  x-show="stageIndex > 0"
+                  :disabled="advancing"
+                  @click="redoStage()"
+                  title="Mark a redo — records a new start point for this stage in the IMU data">
+            ↩ Redo: <span x-text="currentStage?.label"></span>
+          </button>
+          <button class="btn btn-primary" style="padding: 0.7rem; font-weight: 600;"
+                  x-show="stageIndex < stages.length - 1 && !currentStage?.autoAdvance"
+                  :disabled="advancing"
+                  @click="confirmNextStage()">
+            Next: <span x-text="stages[stageIndex + 1]?.label"></span>
+          </button>
+        </div>
+
+        <!-- Recording controls: Pause / Resume / Stop -->
+        <div class="flex gap-sm">
+          <button class="btn btn-full" x-show="!isPaused"
+                  style="padding: 0.7rem; font-weight: 600; background: var(--warning); color: white;"
+                  @click="pauseRecording()">
+            PAUSE
+          </button>
+          <button class="btn btn-full" x-show="isPaused"
+                  style="padding: 0.7rem; font-weight: 600; background: var(--success); color: white;"
+                  @click="resumeRecording()">
+            RESUME
+          </button>
+          <button class="stop-btn" style="flex: 1;" @click="stopRecording()" :disabled="stopping">
+            <span x-show="!stopping">END SESSION</span>
+            <span x-show="stopping">STOPPING...</span>
+          </button>
+        </div>
+
+        <!-- Tag panel (active session) -->
+        <div class="tag-panel mt-md" x-data="tagPanelData(() => currentStage?.id)" x-init="init()">
+          <div class="flex-between" style="font-size: 0.85rem;">
+            <strong style="color: var(--text-light);">
+              Tags
+              <span class="text-muted" x-show="sessionTags.length > 0"
+                    x-text="`(${sessionTags.length})`"></span>
+            </strong>
+            <span class="text-muted text-sm">Flag Max glitches, errors, anything to revisit during analysis.</span>
+          </div>
+
+          <!-- Frequent tag suggestions -->
+          <div class="tag-chip-row" x-show="frequentTags.length > 0">
+            <span class="text-sm text-muted">Frequent:</span>
+            <template x-for="ft in frequentTags" :key="ft.tag">
+              <span class="tag-chip" @click="addTag(ft.tag)">
+                <span x-text="ft.tag"></span>
+                <span class="count" x-text="ft.count"></span>
+              </span>
+            </template>
+          </div>
+
+          <!-- Custom tag input -->
+          <div class="tag-input-row">
+            <input type="text" x-model="newTagText"
+                   @keydown.enter.prevent="addCustomTag()"
+                   placeholder="custom tag (e.g. max-glitch, redo-condition)" maxlength="64">
+            <button class="btn btn-sm btn-primary" @click="addCustomTag()" :disabled="busy || !newTagText.trim()">
+              + Add
+            </button>
+          </div>
+
+          <!-- Already-added tags this session -->
+          <div class="tag-chip-row" x-show="sessionTags.length > 0">
+            <template x-for="t in sessionTags" :key="t.tag_id">
+              <span class="tag-chip session-tag removable">
+                <span x-text="t.tag"></span>
+                <span class="stage-badge" x-show="t.stage" x-text="t.stage"></span>
+                <span class="text-sm" x-show="t.device_ms" x-text="formatDeviceMs(t.device_ms)"></span>
+                <span class="x" @click="deleteTag(t.tag_id)" title="Remove">×</span>
+              </span>
+            </template>
+          </div>
+
+          <div class="alert alert-error" x-show="error" x-text="error"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== POST-SESSION ==================== -->
+  <section class="view" :class="{ active: $store.nav.view === 'post' }" id="view-post"
+           x-data="postSessionData()">
+    <h2 class="mb-md">
+      Post-Session: Import & Merge
+      <span class="text-sm text-muted" x-show="$store.session.currentSession?.test_type_name">
+        (<span x-text="$store.session.currentSession?.test_type_name"></span>)
+      </span>
+    </h2>
+
+    <div class="alert alert-success" x-show="recordingResult">
+      Recording saved: <span x-text="recordingResult?.row_count"></span> rows
+      &rarr; <span class="text-sm" x-text="recordingResult?.file_path"></span>
+    </div>
+
+    <!-- Step 1: IMU dump from each insole over USB (only if test type enables it) -->
+    <div class="card" x-data="imuDumpData()" x-init="init()"
+         x-show="$store.session.currentSession?.has_imu_dump !== 0">
+      <h3>1. Dump IMU from Insoles (USB)</h3>
+      <p class="text-sm text-muted mb-md">
+        Plug one insole at a time into the laptop via USB-C. Select the port, declare which side it is, then dump. Repeat for the other insole. Both are required before continuing.
+      </p>
+
+      <!-- Progress: Left + Right status -->
+      <div class="imu-side-status mb-md">
+        <div class="imu-side-item" :class="results.L ? 'done' : 'pending'">
+          <span class="imu-side-dot"></span>
+          <span>Left insole</span>
+          <span class="text-sm" x-show="results.L" x-text="`— ${results.L?.sample_count} samples`"></span>
+          <span class="text-sm text-muted" x-show="!results.L">not done</span>
+        </div>
+        <div class="imu-side-item" :class="results.R ? 'done' : 'pending'">
+          <span class="imu-side-dot"></span>
+          <span>Right insole</span>
+          <span class="text-sm" x-show="results.R" x-text="`— ${results.R?.sample_count} samples`"></span>
+          <span class="text-sm text-muted" x-show="!results.R">not done</span>
+        </div>
+      </div>
+
+      <div x-show="bothDone" style="background:#052e16; border:1px solid #16a34a; border-radius:7px; padding:0.75rem 1rem; margin-bottom:0.75rem;">
+        <div style="color:#4ade80; font-weight:700; margin-bottom:0.4rem;">✓ Both insoles dumped — data saved.</div>
+        <div style="color:#86efac; font-size:0.83rem; line-height:1.6;">
+          Continue to the next step below.<br>
+          <strong>Before the next session:</strong> plug each insole back in and use the <em>Clear flash</em> button below,
+          or dismiss the pre-session reminder in the live view and clear from there.
+        </div>
+      </div>
+
+      <!-- Port selector + connection indicator -->
+      <div style="display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.75rem;">
+        <label class="text-sm text-muted" style="white-space: nowrap;">Port:</label>
+        <select x-model="selectedPort" style="flex: 1; padding: 5px 8px; border-radius: 6px; border: 1px solid #E5E7EB;">
+          <option value="">Select a USB serial port</option>
+          <template x-for="p in ports" :key="p.device">
+            <option :value="p.device" x-text="`${p.device} (${p.description || 'unknown'})`"></option>
+          </template>
+        </select>
+        <button class="btn btn-sm btn-secondary" @click="loadPorts()" :disabled="loadingPorts">
+          <span x-show="!loadingPorts">Refresh</span>
+          <span x-show="loadingPorts">…</span>
+        </button>
+        <span class="imu-conn-badge connected" x-show="selectedPort">Connected</span>
+        <span class="imu-conn-badge available" x-show="!selectedPort && ports.length > 0">Select port</span>
+        <span class="imu-conn-badge none" x-show="ports.length === 0 && !loadingPorts">No device detected</span>
+      </div>
+
+      <!-- Pre-session clear — accessible before any dump, so flash can be wiped at session start -->
+      <div x-show="selectedPort && !bothDone"
+           style="display:flex; justify-content:space-between; align-items:center; padding:0.55rem 0.75rem; background:var(--bg-secondary); border:1px solid var(--border); border-radius:6px; margin-bottom:0.75rem;">
+        <span class="text-sm text-muted">Starting a new session? Clear old data first.</span>
+        <div style="display:flex; align-items:center; gap:0.6rem;">
+          <span x-show="busy === 'CLEAR'" class="text-sm text-muted">
+            Clearing… <span x-text="clearElapsedSecs + 's'"></span>
+          </span>
+          <span x-show="clearSuccess && !bothDone" style="color:var(--success); font-size:0.83rem; font-weight:600;">✓ Flash cleared</span>
+          <button class="btn btn-sm btn-danger" @click="clearLog()" :disabled="busy">
+            🗑 Clear flash
+          </button>
+        </div>
+      </div>
+
+      <!-- Dump buttons — one per side, visible once a port is selected -->
+      <div x-show="!busy" class="mb-md">
+        <p class="text-sm text-muted" style="margin-bottom: 0.5rem;">
+          <span x-show="!selectedPort">Select a port above, then choose which insole is plugged in:</span>
+          <span x-show="selectedPort">Which insole is plugged in?</span>
+        </p>
+        <div class="flex gap-sm" style="flex-wrap:wrap;">
+          <button class="btn btn-lg"
+                  :class="results.L ? 'btn-secondary' : 'btn-primary'"
+                  :disabled="!selectedPort || !!results.L"
+                  @click="dump('L')">
+            <span x-show="!results.L">⬇ Dump Left Insole</span>
+            <span x-show="results.L">✓ Left done (<span x-text="results.L?.sample_count"></span> samples)</span>
+          </button>
+          <button class="btn btn-lg"
+                  :class="results.R ? 'btn-secondary' : 'btn-primary'"
+                  :disabled="!!results.R"
+                  @click="dump('R')">
+            <span x-show="!results.R">⬇ Dump Right Insole</span>
+            <span x-show="results.R">✓ Right done (<span x-text="results.R?.sample_count"></span> samples)</span>
+          </button>
+          <button class="btn btn-sm btn-secondary"
+                  x-show="results.L || results.R"
+                  @click="resetResults()"
+                  title="Clear stored results so you can re-dump">
+            ↺ Reset
+          </button>
+        </div>
+      </div>
+      <div x-show="busy && busy !== 'INFO' && busy !== 'CLEAR'" class="mb-md">
+        <span class="text-sm text-muted">
+          Dumping <span x-text="busy === 'L' ? 'Left' : 'Right'"></span> insole…
+          <span x-text="dumpElapsedSecs + 's'"></span>
+          <span style="color:var(--text-muted); font-size:0.8em;">(large sessions may take 2–3 min)</span>
+        </span>
+      </div>
+
+      <div class="alert alert-error" x-show="error" x-text="error"></div>
+
+      <!-- INFO result — shown outside Advanced collapse so it's always visible -->
+      <div x-show="infoLines.length > 0" class="diag-details mt-sm mb-sm">
+        <template x-for="line in infoLines"><div x-text="line"></div></template>
+      </div>
+      <div x-show="infoAttempted && infoLines.length === 0" class="text-sm mb-sm"
+           style="color:var(--text-muted); background:var(--bg-secondary); border:1px solid var(--border); border-radius:6px; padding:0.4rem 0.7rem;">
+        ⚠ No response from insole — the firmware may not be running, or the wrong port is selected.
+        Try unplugging and replugging the USB cable, then click Refresh.
+      </div>
+
+      <!-- Clear flash for next session (shown once both dumps are done) -->
+      <div x-show="bothDone && selectedPort" style="margin-top:0.75rem; border-top:1px solid var(--border); padding-top:0.75rem;">
+        <p class="text-sm text-muted" style="margin-bottom:0.4rem;">Ready for the next participant? Clear the flash now:</p>
+        <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
+          <button class="btn btn-sm btn-danger" @click="clearLog()" :disabled="!selectedPort || busy">
+            <span x-show="busy !== 'CLEAR'">🗑 Clear flash (next session prep)</span>
+            <span x-show="busy === 'CLEAR'">Clearing… <span x-text="clearElapsedSecs + 's'"></span></span>
+          </button>
+          <span x-show="clearSuccess" style="color:#4ade80; font-size:0.83rem; font-weight:600;">✓ Flash cleared — insole is ready for the next session.</span>
+        </div>
+      </div>
+
+      <!-- Advanced actions -->
+      <details class="mt-md" x-show="selectedPort">
+        <summary class="text-sm text-muted" style="cursor: pointer;">Advanced</summary>
+        <div class="flex gap-sm mt-sm">
+          <button class="btn btn-sm btn-secondary" @click="info()" :disabled="!selectedPort || busy">
+            Read INFO
+          </button>
+          <button class="btn btn-sm btn-danger" @click="clearLog()" :disabled="!selectedPort || busy">
+            Clear flash
+          </button>
+        </div>
+      </details>
+    </div>
+
+    <!-- Step 2: Upload pressure CSV (only if test type enables it) -->
+    <div class="card" x-data="fileUploadData()" x-init="init()"
+         x-show="$store.session.currentSession?.has_pressure_merge !== 0">
+      <h3>2. Upload Pressure CSV from Max/MSP</h3>
+
+      <!-- ── Per-stage mode (Test 5 / sessions with both conditions) ── -->
+      <template x-if="isStageMode">
+        <div>
+          <p class="text-sm text-muted mb-md">Upload each stage's pressure CSV separately, then combine them.</p>
+          <table style="width:100%; border-collapse:collapse;">
+            <template x-for="slot in stageSlots" :key="slot.key">
+              <tr style="border-bottom:1px solid var(--border);">
+                <td style="padding:0.45rem 0.5rem 0.45rem 0; width:110px; font-weight:600; font-size:0.9rem;" x-text="slot.label"></td>
+                <td style="padding:0.45rem 0.5rem; font-size:0.78rem; color:var(--text-muted); font-family:monospace;"
+                    x-text="stageUploads[slot.key]?.done ? (stageUploads[slot.key]?.name || '✓ uploaded') : '—'"></td>
+                <td style="padding:0.45rem 0; text-align:right;">
+                  <template x-if="stageUploads[slot.key]?.done">
+                    <span style="color:var(--success); font-size:0.85rem; font-weight:600;">✓ Done
+                      <label style="cursor:pointer; font-weight:400; font-size:0.78rem; margin-left:0.4rem; color:var(--text-muted);">
+                        (replace
+                        <input type="file" accept=".csv" style="display:none"
+                               @change="uploadStage(slot.key, $event.target.files[0]); $event.target.value=''">
+                        )
+                      </label>
+                    </span>
+                  </template>
+                  <template x-if="!stageUploads[slot.key]?.done">
+                    <label class="drop-zone"
+                           style="display:inline-flex; align-items:center; gap:0.4rem; padding:0.3rem 0.7rem; cursor:pointer; margin:0;"
+                           @dragover.prevent="$el.classList.add('drag-hover')"
+                           @dragleave="$el.classList.remove('drag-hover')"
+                           @drop.prevent="$el.classList.remove('drag-hover'); uploadStage(slot.key, $event.dataTransfer.files[0])">
+                      <span x-show="!stageUploads[slot.key]?.uploading" style="font-size:0.82rem;">Drop CSV or <span class="browse-link">browse</span></span>
+                      <span x-show="stageUploads[slot.key]?.uploading" style="font-size:0.82rem; color:var(--text-muted);">Uploading…</span>
+                      <input type="file" accept=".csv" style="display:none"
+                             @change="uploadStage(slot.key, $event.target.files[0]); $event.target.value=''">
+                    </label>
+                  </template>
+                  <div x-show="stageUploads[slot.key]?.error"
+                       style="font-size:0.75rem; color:var(--danger); margin-top:2px;"
+                       x-text="stageUploads[slot.key]?.error"></div>
+                </td>
+              </tr>
+            </template>
+          </table>
+
+          <div style="margin-top:0.9rem;">
+            <button class="btn btn-primary" :disabled="!allStagesDone || combining || combined"
+                    @click="combineStages()">
+              <span x-show="!combining && !combined">Combine into pressure file</span>
+              <span x-show="combining">Combining…</span>
+              <span x-show="combined">✓ Combined</span>
+            </button>
+            <span x-show="combined" style="margin-left:0.75rem; color:var(--success); font-size:0.85rem; font-weight:600;">
+              All 4 stage files combined — ready to merge.
+            </span>
+          </div>
+        </div>
+      </template>
+
+      <!-- ── Single-file mode (all other test types) ── -->
+      <template x-if="!isStageMode">
+        <div>
+          <div class="drop-zone" :class="{ 'drag-hover': hovering }"
+               @dragover.prevent="hovering = true"
+               @dragleave="hovering = false"
+               @drop.prevent="handleDrop($event)"
+               x-show="!uploaded">
+            <p>Drag the Max pressure CSV here, or
+              <label class="browse-link">
+                browse
+                <input type="file" accept=".csv" @change="handlePick($event)" hidden>
+              </label>
+            </p>
+            <p class="text-sm text-muted mt-sm" x-show="uploading">Uploading and validating...</p>
+          </div>
+          <div class="alert alert-success" x-show="uploaded">
+            Pressure CSV uploaded: <span x-text="file?.name"></span>
+          </div>
+        </div>
+      </template>
+
+      <div class="alert alert-error" x-show="error" x-text="error"></div>
+    </div>
+
+    <!-- Step 3: Merge (only if test type enables pressure merge) -->
+    <div class="card" x-show="$store.session.currentSession?.has_pressure_merge !== 0">
+      <h3>3. Merge Data</h3>
+      <button class="btn btn-primary" @click="runMerge()" :disabled="merging || merged">
+        <span x-show="!merging">Run Merge</span>
+        <span x-show="merging">Merging...</span>
+      </button>
+
+      <div class="alert alert-error mt-md" x-show="mergeError" x-text="mergeError"></div>
+
+      <template x-if="mergeWarnings.length > 0">
+        <div class="mt-md">
+          <template x-for="w in mergeWarnings">
+            <div class="alert alert-warning" x-text="w"></div>
+          </template>
+        </div>
+      </template>
+
+      <!-- Sync pulse alignment -->
+      <template x-if="syncAlignment">
+        <div class="mt-md alert"
+             :class="!syncAlignment.found ? 'alert-error' :
+                     Math.abs(syncAlignment.delta_ms) <= 50 ? 'alert-success' : 'alert-warning'">
+          <strong>Sync alignment:</strong>
+          <template x-if="!syncAlignment.found">
+            <span>No sync pulse (phase=9) found in IMU data. Cannot verify alignment.</span>
+          </template>
+          <template x-if="syncAlignment.found">
+            <span>
+              IMU device_ms = <span x-text="syncAlignment.imu_ms?.toFixed(0)"></span>,
+              pressure device_ms = <span x-text="syncAlignment.pressure_ms?.toFixed(0)"></span>,
+              Δ = <span x-text="(syncAlignment.delta_ms >= 0 ? '+' : '') + syncAlignment.delta_ms?.toFixed(1) + ' ms'"></span>
+              <span x-show="Math.abs(syncAlignment.delta_ms) <= 50"> (within tolerance)</span>
+              <span x-show="Math.abs(syncAlignment.delta_ms) > 50"> (over 50ms tolerance)</span>
+            </span>
+          </template>
+        </div>
+      </template>
+
+      <!-- Preview table -->
+      <div class="preview-table-wrap mt-md" x-show="mergePreview.length > 0">
+        <table class="preview-table">
+          <thead>
+            <tr>
+              <template x-for="col in mergePreview.length > 0 ? Object.keys(mergePreview[0]) : []">
+                <th x-text="col"></th>
+              </template>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="(row, idx) in mergePreview" :key="idx">
+              <tr :class="{ 'sync-row': row.phase === 9 }">
+                <template x-for="col in Object.keys(row)">
+                  <td x-text="row[col] !== null ? row[col] : '-'"></td>
+                </template>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+        <p class="text-sm text-muted mt-sm" x-text="'Showing first 20 of ' + totalRows + ' rows'"></p>
+      </div>
+
+      <button class="btn btn-success mt-md" x-show="mergePreview.length > 0 && !merged"
+              @click="confirmMerge()">
+        Confirm Merge
+      </button>
+
+      <div class="alert alert-success mt-md" x-show="merged">
+        Merge confirmed. Data saved.
+      </div>
+    </div>
+
+    <!-- Calibration thresholds (from Max file) -->
+    <div class="card" x-show="calibration.length > 0">
+      <h3>Calibration Thresholds</h3>
+      <p class="text-sm text-muted mb-md">Upper/lower bounds per foot zone extracted from the Max file. Verify these match your calibration.</p>
+      <table class="preview-table" style="width: auto;">
+        <thead>
+          <tr><th>Zone</th><th>Upper</th><th>Lower</th></tr>
+        </thead>
+        <tbody>
+          <template x-for="t in calibration" :key="t.zone">
+            <tr>
+              <td x-text="t.label || t.zone"></td>
+              <td x-text="t.lower"></td>
+              <td x-text="t.upper"></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Continue / Back -->
+    <div class="flex gap-sm mt-md">
+      <button class="btn btn-secondary" @click="$store.nav.navigate('dashboard'); $store.session.loadSessions()">Back to Dashboard</button>
+      <button class="btn btn-primary"
+              x-show="$store.session.currentSession?.has_consciousness_check !== 0 || $store.session.currentSession?.has_overall_ratings !== 0"
+              @click="goToQuestionnaire()">Continue to Questionnaire</button>
+    </div>
+  </section>
+
+  <!-- ==================== QUESTIONNAIRE ==================== -->
+  <section class="view" :class="{ active: $store.nav.view === 'questionnaire' }" id="view-questionnaire"
+           x-data="questionnaireData()"
+           x-init="init(); $watch('$store.session.currentSessionId', () => init())">
+
+    <div class="flex-between mb-md">
+      <h2>Questionnaire</h2>
+      <span class="text-sm text-muted">
+        <template x-if="_consciousnessRequired">
+          <span><span x-text="consciousnessSubmitted ? '1' : '0'"></span>/1 consciousness</span>
+        </template>
+        <template x-if="_consciousnessRequired && _ratingsRequired"><span> · </span></template>
+        <template x-if="_ratingsRequired">
+          <span><span x-text="ratingsSubmitted ? '1' : '0'"></span>/1 ratings</span>
+        </template>
+        <template x-if="!_consciousnessRequired && !_ratingsRequired">
+          <span class="text-muted">no questionnaires for this test type</span>
+        </template>
+      </span>
+    </div>
+
+    <!-- All done -->
+    <template x-if="allDone">
+      <div>
+        <div class="alert alert-success">Both submissions complete. Session marked complete.</div>
+        <button class="btn btn-primary mt-md" @click="$store.nav.navigate('dashboard'); $store.session.loadSessions()">
+          Back to Dashboard
+        </button>
+      </div>
+    </template>
+
+    <div class="alert alert-error" x-show="error" x-text="error"></div>
+
+    <!-- ════════════════════════════════════════════════════════════════ -->
+    <!-- Card 1: Consciousness check — single submission, 4 stages        -->
+    <!-- (Hidden if test type disables consciousness check.)              -->
+    <!-- ════════════════════════════════════════════════════════════════ -->
+    <div class="card" x-show="!consciousnessSubmitted && sessionMeta?.has_consciousness_check !== 0">
+      <div style="max-width: 720px; margin: 0 auto;">
+      <h2>Consciousness Check</h2>
+      <p class="text-sm text-muted mb-md">
+        One submission per session. Stages reveal sequentially as you fill them in.
+      </p>
+
+      <!-- Stage 1: Post-calibration -->
+      <div class="consciousness-block">
+        <h4>1. Post-Calibration</h4>
+        <div class="form-group">
+          <label>Did the participant notice anything during calibration?</label>
+          <div class="flex gap-sm">
+            <button class="btn btn-sm" :class="postCalibration.noticed === 1 ? 'btn-primary' : 'btn-secondary'"
+                    @click="postCalibration.noticed = 1">Yes</button>
+            <button class="btn btn-sm" :class="postCalibration.noticed === 0 ? 'btn-primary' : 'btn-secondary'"
+                    @click="postCalibration.noticed = 0">No</button>
+          </div>
+        </div>
+        <div class="form-group" x-show="postCalibration.noticed === 1">
+          <label>Description</label>
+          <textarea x-model="postCalibration.text" placeholder="What did they say?"></textarea>
+        </div>
+      </div>
+
+      <!-- Stage 2: After Condition 1 -->
+      <div class="consciousness-block" x-show="consciousnessStage >= 1">
+        <h4>
+          2. After Condition 1
+          <span class="text-sm text-muted" x-show="firstConditionInfo">
+            (Condition <span x-text="firstConditionInfo?.letter"></span>:
+            <span x-text="firstConditionInfo?.label"></span>,
+            <span x-text="firstConditionInfo?.direction"></span>)
+          </span>
+        </h4>
+        <div class="alert alert-warning" x-show="firstConditionInfo">
+          <strong>This condition was actually:</strong>
+          <span x-text="firstConditionInfo?.label"></span>,
+          <span x-text="firstConditionInfo?.direction"></span>.
+        </div>
+        <div class="form-group">
+          <label>Could the participant tell the audio was changing?</label>
+          <div class="flex gap-sm">
+            <button class="btn btn-sm" :class="cond1.noticed === 1 ? 'btn-primary' : 'btn-secondary'"
+                    @click="cond1.noticed = 1">Yes</button>
+            <button class="btn btn-sm" :class="cond1.noticed === 0 ? 'btn-primary' : 'btn-secondary'"
+                    @click="cond1.noticed = 0; cond1.guess = null">No</button>
+          </div>
+        </div>
+        <div class="form-group" x-show="cond1.noticed === 1">
+          <label>What did they guess?</label>
+          <div class="flex gap-sm">
+            <template x-for="opt in firstConditionInfo?.guessOptions || []" :key="opt.value">
+              <button class="btn btn-sm"
+                      :class="cond1.guess === opt.value ? 'btn-primary' : 'btn-secondary'"
+                      @click="cond1.guess = opt.value"
+                      x-text="opt.label"></button>
+            </template>
+          </div>
+        </div>
+        <div class="form-group" x-show="cond1.noticed !== null">
+          <label>Notes (optional)</label>
+          <textarea x-model="cond1.text" placeholder="Free-text comment from the participant"></textarea>
+        </div>
+      </div>
+
+      <!-- Stage 3: After Condition 2 -->
+      <div class="consciousness-block" x-show="consciousnessStage >= 2">
+        <h4>
+          3. After Condition 2
+          <span class="text-sm text-muted" x-show="secondConditionInfo">
+            (Condition <span x-text="secondConditionInfo?.letter"></span>:
+            <span x-text="secondConditionInfo?.label"></span>,
+            <span x-text="secondConditionInfo?.direction"></span>)
+          </span>
+        </h4>
+        <div class="alert alert-warning" x-show="secondConditionInfo">
+          <strong>This condition was actually:</strong>
+          <span x-text="secondConditionInfo?.label"></span>,
+          <span x-text="secondConditionInfo?.direction"></span>.
+        </div>
+        <div class="form-group">
+          <label>Could the participant tell the audio was changing?</label>
+          <div class="flex gap-sm">
+            <button class="btn btn-sm" :class="cond2.noticed === 1 ? 'btn-primary' : 'btn-secondary'"
+                    @click="cond2.noticed = 1">Yes</button>
+            <button class="btn btn-sm" :class="cond2.noticed === 0 ? 'btn-primary' : 'btn-secondary'"
+                    @click="cond2.noticed = 0; cond2.guess = null">No</button>
+          </div>
+        </div>
+        <div class="form-group" x-show="cond2.noticed === 1">
+          <label>What did they guess?</label>
+          <div class="flex gap-sm">
+            <template x-for="opt in secondConditionInfo?.guessOptions || []" :key="opt.value">
+              <button class="btn btn-sm"
+                      :class="cond2.guess === opt.value ? 'btn-primary' : 'btn-secondary'"
+                      @click="cond2.guess = opt.value"
+                      x-text="opt.label"></button>
+            </template>
+          </div>
+        </div>
+        <div class="form-group" x-show="cond2.noticed !== null">
+          <label>Notes (optional)</label>
+          <textarea x-model="cond2.text" placeholder="Free-text comment from the participant"></textarea>
+        </div>
+      </div>
+
+      <!-- Stage 4: Post-Session debrief -->
+      <div class="consciousness-block" x-show="consciousnessStage >= 3">
+        <h4>4. Post-Session Debrief</h4>
+        <div class="form-group">
+          <label>After the test, did they describe noticing any change?</label>
+          <div class="flex gap-sm">
+            <button class="btn btn-sm" :class="postSession.noticed === 1 ? 'btn-primary' : 'btn-secondary'"
+                    @click="postSession.noticed = 1">Yes</button>
+            <button class="btn btn-sm" :class="postSession.noticed === 0 ? 'btn-primary' : 'btn-secondary'"
+                    @click="postSession.noticed = 0">No</button>
+          </div>
+        </div>
+        <div class="form-group" x-show="postSession.noticed === 1">
+          <label>Description</label>
+          <textarea x-model="postSession.text" placeholder="What did they say after the test?"></textarea>
+        </div>
+
+        <div class="form-group">
+          <label>What did they describe for tempo?</label>
+          <div class="flex gap-sm">
+            <button class="btn btn-sm" :class="postSession.tempoGuess === 'speeding_up' ? 'btn-primary' : 'btn-secondary'"
+                    @click="postSession.tempoGuess = 'speeding_up'">speeding up</button>
+            <button class="btn btn-sm" :class="postSession.tempoGuess === 'slowing_down' ? 'btn-primary' : 'btn-secondary'"
+                    @click="postSession.tempoGuess = 'slowing_down'">slowing down</button>
+            <button class="btn btn-sm" :class="postSession.tempoGuess === 'no_change' ? 'btn-primary' : 'btn-secondary'"
+                    @click="postSession.tempoGuess = 'no_change'">no change</button>
+            <button class="btn btn-sm btn-secondary" @click="postSession.tempoGuess = null">Clear</button>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>What did they describe for weight?</label>
+          <div class="flex gap-sm">
+            <button class="btn btn-sm" :class="postSession.weightGuess === 'lighter' ? 'btn-primary' : 'btn-secondary'"
+                    @click="postSession.weightGuess = 'lighter'">lighter</button>
+            <button class="btn btn-sm" :class="postSession.weightGuess === 'heavier' ? 'btn-primary' : 'btn-secondary'"
+                    @click="postSession.weightGuess = 'heavier'">heavier</button>
+            <button class="btn btn-sm" :class="postSession.weightGuess === 'no_change' ? 'btn-primary' : 'btn-secondary'"
+                    @click="postSession.weightGuess = 'no_change'">no change</button>
+            <button class="btn btn-sm btn-secondary" @click="postSession.weightGuess = null">Clear</button>
+          </div>
+        </div>
+      </div>
+
+      <button class="btn btn-primary btn-full mt-md" @click="submitConsciousness()" :disabled="!canSubmitConsciousness">
+        <span x-show="!submitting" x-text="editingConsciousness ? 'Update responses' : 'Submit Consciousness Check'"></span>
+        <span x-show="submitting" x-text="editingConsciousness ? 'Updating…' : 'Submitting…'"></span>
+      </button>
+      <p class="text-sm text-muted mt-sm" x-show="!canSubmitConsciousness && !submitting">
+        Complete all stages above before submitting.
+      </p>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════════════════════════════════════ -->
+    <!-- Card 2: Overall ratings (once per session, centred layout)       -->
+    <!-- (Hidden if test type disables overall ratings.)                  -->
+    <!-- ════════════════════════════════════════════════════════════════ -->
+    <div class="card ratings-card" x-show="!ratingsSubmitted && sessionMeta?.has_overall_ratings !== 0">
+      <div class="ratings-content">
+        <h2 style="text-align: center;">Overall Ratings</h2>
+        <p class="text-sm text-muted mb-md" style="text-align: center;">
+          Submitted once for the whole session. These capture the participant's
+          overall impression across both conditions.
+        </p>
+
+        <h3 class="mt-md">Perceived Agency</h3>
+        <p class="text-sm text-muted mb-md">Rate each statement from 0 (not at all) to 10 (completely).</p>
+
+        <template x-for="(item, idx) in agencyItems" :key="idx">
+          <div class="rating-block">
+            <div class="rating-text" x-text="item"></div>
+            <div class="bipolar-row">
+              <span class="adj adj-right">not at all</span>
+              <div class="scale-options">
+                <template x-for="val in [0,1,2,3,4,5,6,7,8,9,10]" :key="val">
+                  <label :class="{ selected: agency['q' + (idx + 1)] === val }"
+                         @click="agency['q' + (idx + 1)] = val">
+                    <span x-text="val"></span>
+                  </label>
+                </template>
+              </div>
+              <span class="adj">completely</span>
+            </div>
+          </div>
+        </template>
+
+        <h3 class="mt-lg">User Experience (UEQ-S)</h3>
+        <p class="text-sm text-muted mb-md">Rate where the experience falls between each pair of qualities (1-7).</p>
+
+        <template x-for="(pair, idx) in ueqsItems" :key="idx">
+          <div class="bipolar-row">
+            <span class="adj adj-right" x-text="pair[0]"></span>
+            <div class="scale-options">
+              <template x-for="val in [1,2,3,4,5,6,7]" :key="val">
+                <label :class="{ selected: ueqs[idx] === val }" @click="ueqs[idx] = val">
+                  <span x-text="val"></span>
+                </label>
+              </template>
+            </div>
+            <span class="adj" x-text="pair[1]"></span>
+          </div>
+        </template>
+
+        <h3 class="mt-lg">Immersion (ARI)</h3>
+        <p class="text-sm text-muted mb-md">Rate your agreement with each statement (1 = totally disagree, 7 = totally agree).</p>
+
+        <template x-for="(item, idx) in ariItems" :key="idx">
+          <div class="rating-block">
+            <div class="rating-text" x-text="item"></div>
+            <div class="bipolar-row">
+              <span class="adj adj-right">totally disagree</span>
+              <div class="scale-options">
+                <template x-for="val in [1,2,3,4,5,6,7]" :key="val">
+                  <label :class="{ selected: ari[idx] === val }" @click="ari[idx] = val">
+                    <span x-text="val"></span>
+                  </label>
+                </template>
+              </div>
+              <span class="adj">totally agree</span>
+            </div>
+          </div>
+        </template>
+
+        <button class="btn btn-primary btn-full mt-md" @click="submitRatings()" :disabled="!canSubmitRatings">
+          <span x-show="!submitting">Submit Overall Ratings</span>
+          <span x-show="submitting">Submitting…</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Last-submission acknowledgement (transient, after ratings submit) -->
+    <template x-if="lastSubmitted && lastSubmitted.kind === 'ratings'">
+      <div class="card ratings-card">
+        <div class="ratings-content">
+          <h3 style="text-align: center;">Overall Ratings (submitted)</h3>
+          <div class="score-display" style="justify-content: center;">
+            <div class="score-item">
+              <div class="score-label">Agency</div>
+              <div class="score-value" x-text="lastSubmitted.agencyAggregate?.toFixed(2)"></div>
+            </div>
+            <div class="score-item">
+              <div class="score-label">UEQ-S Pragmatic</div>
+              <div class="score-value" x-text="lastSubmitted.ueqsPragmatic?.toFixed(2)"></div>
+            </div>
+            <div class="score-item">
+              <div class="score-label">ARI Immersion</div>
+              <div class="score-value" x-text="lastSubmitted.ariImmersion?.toFixed(2)"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <!-- Session notes (always visible, editable) -->
+    <div class="card" x-show="sessionMeta">
+      <div style="max-width: 720px; margin: 0 auto;">
+      <h2>Session Notes</h2>
+      <p class="text-sm text-muted mb-md">Add or update notes from this session.</p>
+      <div class="form-group">
+        <label>Notes on setup</label>
+        <textarea x-model="notesSetup" placeholder="e.g. sensor placement, calibration quirks, hardware tweaks"></textarea>
+      </div>
+      <div class="form-group">
+        <label>Notes on use</label>
+        <textarea x-model="notesUse" placeholder="e.g. participant comfort, walking style observations"></textarea>
+      </div>
+      <div class="form-group">
+        <label>Notes on data</label>
+        <textarea x-model="notesData" placeholder="e.g. dropouts, glitches, anything to consider during analysis"></textarea>
+      </div>
+      <div class="form-group">
+        <label>General notes</label>
+        <textarea x-model="notes" placeholder="catch-all"></textarea>
+      </div>
+      <div class="flex gap-sm" style="align-items: center;">
+        <button class="btn btn-primary" @click="saveNotes()" :disabled="notesSaving">
+          <span x-show="!notesSaving">Save Notes</span>
+          <span x-show="notesSaving">Saving...</span>
+        </button>
+        <span class="text-sm" style="color: var(--success);" x-show="notesSaved">Saved.</span>
+      </div>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- (History view removed — its features are merged into the Dashboard
+        edit-mode toggle: download/delete buttons + Export All) -->
+
+  <!-- ==================== SESSION DETAIL ==================== -->
+  <section class="view" :class="{ active: $store.nav.view === 'detail' }" id="view-detail"
+           x-data="detailData()">
+    <button class="btn btn-sm btn-secondary mb-md" @click="$store.nav.navigate('dashboard'); $store.session.loadSessions()">
+      &larr; Back to Dashboard
+    </button>
+
+    <!-- Loading / error states -->
+    <div x-show="loading" class="card" style="color:var(--text-muted); text-align:center; padding:2rem;">
+      Loading session…
+    </div>
+    <div x-show="loadError && !loading" class="card" style="background:#fef2f2; border:1px solid #fca5a5; padding:1.25rem;">
+      <strong style="color:#dc2626;">Failed to load session</strong>
+      <span style="color:#7f1d1d; margin-left:0.5rem;" x-text="loadError"></span>
+      <button class="btn btn-sm btn-secondary" style="margin-left:1rem;" @click="loadDetail()">Retry</button>
+    </div>
+
+    <template x-if="session">
+      <div>
+        <div class="card">
+          <!-- Header row with edit toggle -->
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:1rem;">
+            <h2 style="margin:0;">Session <span x-text="'#' + session.session_number"></span></h2>
+            <div style="display:flex; gap:0.5rem; align-items:center;">
+              <button class="btn btn-sm btn-secondary" @click="startEdit()" x-show="!editing" title="Edit session details">
+                ✏️ Edit
+              </button>
+              <template x-if="editing">
+                <div style="display:flex; gap:0.5rem;">
+                  <button class="btn btn-sm btn-primary" @click="saveEdit()" :disabled="savingEdit">
+                    <span x-text="savingEdit ? 'Saving…' : 'Save'"></span>
+                  </button>
+                  <button class="btn btn-sm btn-secondary" @click="cancelEdit()">Cancel</button>
+                </div>
+              </template>
+            </div>
+          </div>
+
+          <!-- ── VIEW MODE ── -->
+          <template x-if="!editing">
+            <div>
+              <div class="detail-grid">
+                <div class="detail-field">
+                  <label>Participant</label>
+                  <div class="value" x-text="session.participant_id"></div>
+                </div>
+                <div class="detail-field" x-show="session.condition_order">
+                  <label>Order</label>
+                  <div class="value" x-text="session.condition_order"></div>
+                </div>
+                <div class="detail-field" x-show="session.tempo_direction">
+                  <label>Tempo (A)</label>
+                  <div class="value" x-text="(session.tempo_direction || '-').replace('_', ' ')"></div>
+                </div>
+                <div class="detail-field" x-show="session.weight_direction">
+                  <label>Weight (B)</label>
+                  <div class="value" x-text="(session.weight_direction || '-').replace('_', ' ')"></div>
+                </div>
+                <div class="detail-field" x-show="baselineBpm != null">
+                  <label>Baseline BPM</label>
+                  <div class="value"
+                       :title="baselineBpmSources.filter(s=>s.included).map(s=>s.source.replace(/_/g,' ')+': '+s.bpm?.toFixed(1)).join(' · ')"
+                       style="cursor:default;">
+                    <span x-text="baselineBpm?.toFixed(1)"></span>
+                    <span class="text-muted" style="font-size:0.8em; margin-left:0.25rem;">BPM</span>
+                  </div>
+                </div>
+                <div class="detail-field">
+                  <label>Date</label>
+                  <div class="value" x-text="formatDate(session.session_date)"></div>
+                </div>
+                <div class="detail-field">
+                  <label>Status</label>
+                  <div class="value">
+                    <span class="status-dot" :class="session.status"></span>
+                    <span x-text="session.status"></span>
+                  </div>
+                </div>
+                <div class="detail-field" x-show="session.notes">
+                  <label>Notes</label>
+                  <div class="value" x-text="session.notes"></div>
+                </div>
+                <div class="detail-field" x-show="session.notes_setup">
+                  <label>Setup notes</label>
+                  <div class="value" x-text="session.notes_setup"></div>
+                </div>
+                <div class="detail-field" x-show="session.notes_use">
+                  <label>Use notes</label>
+                  <div class="value" x-text="session.notes_use"></div>
+                </div>
+                <div class="detail-field" x-show="session.notes_data">
+                  <label>Data notes</label>
+                  <div class="value" x-text="session.notes_data"></div>
+                </div>
+              </div>
+            </div>
+          </template>
+
+          <!-- ── EDIT MODE ── -->
+          <template x-if="editing">
+            <div>
+              <div class="detail-grid">
+                <div class="detail-field">
+                  <label>Participant</label>
+                  <div class="value" x-text="session.participant_id" style="color:var(--text-muted);"></div>
+                </div>
+                <div class="detail-field">
+                  <label>Status</label>
+                  <div class="value">
+                    <span class="status-dot" :class="session.status"></span>
+                    <span x-text="session.status" style="color:var(--text-muted);"></span>
+                  </div>
+                </div>
+                <div class="detail-field">
+                  <label>Date &amp; Time</label>
+                  <input type="datetime-local" x-model="editForm.session_date" style="width:100%;">
+                </div>
+                <div class="detail-field" x-show="session.has_condition_1 || session.has_condition_2">
+                  <label>Condition Order</label>
+                  <select x-model="editForm.condition_order" style="width:100%;">
+                    <option value="">— none —</option>
+                    <option value="A-first">A-first</option>
+                    <option value="B-first">B-first</option>
+                  </select>
+                </div>
+                <div class="detail-field" x-show="session.has_condition_1 || session.has_condition_2">
+                  <label>Tempo (A)</label>
+                  <select x-model="editForm.tempo_direction" style="width:100%;">
+                    <option value="">— none —</option>
+                    <option value="speeding_up">Speeding up</option>
+                    <option value="slowing_down">Slowing down</option>
+                  </select>
+                </div>
+                <div class="detail-field" x-show="session.has_condition_1 || session.has_condition_2">
+                  <label>Weight (B)</label>
+                  <select x-model="editForm.weight_direction" style="width:100%;">
+                    <option value="">— none —</option>
+                    <option value="increasing">Increasing</option>
+                    <option value="decreasing">Decreasing</option>
+                  </select>
+                </div>
+              </div>
+
+              <!-- Notes -->
+              <div style="margin-top:1rem;">
+                <div class="detail-field" style="margin-bottom:0.75rem;">
+                  <label>Notes</label>
+                  <textarea x-model="editForm.notes" rows="2" style="width:100%; resize:vertical;" placeholder="General notes…"></textarea>
+                </div>
+                <div class="detail-field" style="margin-bottom:0.75rem;">
+                  <label>Setup notes</label>
+                  <textarea x-model="editForm.notes_setup" rows="2" style="width:100%; resize:vertical;" placeholder="Notes on setup…"></textarea>
+                </div>
+                <div class="detail-field" style="margin-bottom:0.75rem;">
+                  <label>Use notes</label>
+                  <textarea x-model="editForm.notes_use" rows="2" style="width:100%; resize:vertical;" placeholder="Notes on use…"></textarea>
+                </div>
+                <div class="detail-field" style="margin-bottom:0.75rem;">
+                  <label>Data notes</label>
+                  <textarea x-model="editForm.notes_data" rows="2" style="width:100%; resize:vertical;" placeholder="Notes on data…"></textarea>
+                </div>
+              </div>
+
+              <!-- File uploads -->
+              <div style="margin-top:1rem;">
+                <label style="font-weight:600; font-size:0.85rem; display:block; margin-bottom:0.5rem;">Data files</label>
+                <table style="width:100%; border-collapse:collapse;">
+                  <template x-for="ft in [
+                    { key:'pressure', label:'Pressure (30 s)', path: session.pressure_raw_path },
+                    { key:'cal_1',    label:'Cal 1 (10 s)',    path: session.cal_file_1_path },
+                    { key:'cal_2',    label:'Cal 2 (10 s)',    path: session.cal_file_2_path },
+                    { key:'cal_3',    label:'Cal 3 (10 s)',    path: session.cal_file_3_path },
+                  ]" :key="ft.key">
+                    <tr style="border-bottom:1px solid var(--border);">
+                      <td style="padding:0.45rem 0.5rem 0.45rem 0; width:130px; font-size:0.82rem; font-weight:500; white-space:nowrap;" x-text="ft.label"></td>
+                      <td style="padding:0.45rem 0.5rem; font-size:0.75rem; color:var(--text-muted); font-family:monospace; max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"
+                          :title="ft.path || ''"
+                          x-text="ft.path ? ft.path.split('/').pop() : '—'"></td>
+                      <td style="padding:0.45rem 0; text-align:right; white-space:nowrap;">
+                        <label :for="'file-input-'+ft.key" class="drop-zone"
+                               style="display:inline-flex; align-items:center; gap:0.4rem; padding:0.25rem 0.65rem; cursor:pointer; margin:0; font-size:0.8rem;"
+                               @dragover.prevent="$el.classList.add('drag-hover')"
+                               @dragleave="$el.classList.remove('drag-hover')"
+                               @drop.prevent="$el.classList.remove('drag-hover'); uploadFile(ft.key, $event.dataTransfer.files[0])">
+                          <span x-show="!fileUploads[ft.key]?.uploading">
+                            <span x-show="!fileUploads[ft.key]?.success">Drop CSV or <span class="browse-link">browse</span></span>
+                            <span x-show="fileUploads[ft.key]?.success" style="color:var(--success);">✓ Uploaded</span>
+                          </span>
+                          <span x-show="fileUploads[ft.key]?.uploading" style="color:var(--text-muted);">Uploading…</span>
+                          <input :id="'file-input-'+ft.key" type="file" accept=".csv" style="display:none"
+                                 @change="uploadFile(ft.key, $event.target.files[0]); $el.value=''">
+                        </label>
+                        <div x-show="fileUploads[ft.key]?.error" style="font-size:0.72rem; color:var(--danger); margin-top:2px; text-align:right;"
+                             x-text="fileUploads[ft.key]?.error"></div>
+                      </td>
+                    </tr>
+                  </template>
+                </table>
+                <p class="text-sm text-muted" style="margin:0.4rem 0 0;">Files are saved with a canonical name — the original filename doesn't matter.</p>
+              </div>
+
+              <!-- Save / Cancel at bottom of form -->
+              <div style="display:flex; gap:0.5rem; margin-top:1.25rem;">
+                <button class="btn btn-primary" @click="saveEdit()" :disabled="savingEdit" style="flex:1;">
+                  <span x-text="savingEdit ? 'Saving…' : 'Save changes'"></span>
+                </button>
+                <button class="btn btn-secondary" @click="cancelEdit()">Cancel</button>
+              </div>
+
+              <div class="alert alert-error mt-md" x-show="editError" x-text="editError"></div>
+            </div>
+          </template>
+
+          <div class="mt-md flex gap-sm">
+            <a class="btn btn-primary btn-sm" x-show="session.merged_path"
+               :href="'/api/export/session/' + session.session_id + '/csv'">
+              Download Merged CSV
+            </a>
+            <button class="btn btn-danger btn-sm" @click="deleteSession()" x-show="!editing">Delete Session</button>
+          </div>
+        </div>
+
+        <!-- Files in folder — always shown, lists everything on disk -->
+        <div class="card">
+          <h2>Files in folder</h2>
+          <div x-show="loadingFolderFiles" class="text-sm text-muted">Loading…</div>
+          <template x-if="folderFiles">
+            <div>
+              <p class="text-sm text-muted mb-sm"
+                 x-text="folderFiles.folder_exists
+                   ? folderFiles.files.length + ' file(s) in ' + folderFiles.folder
+                   : '⚠ Folder not found: ' + folderFiles.folder">
+              </p>
+              <table style="width:100%; border-collapse:collapse; font-size:0.83rem;">
+                <template x-for="f in folderFiles.files" :key="f.filename">
+                  <tr style="border-bottom:1px solid var(--border);">
+                    <td style="padding:0.35rem 0.5rem 0.35rem 0; font-family:monospace; word-break:break-all;"
+                        x-text="f.filename"></td>
+                    <td style="padding:0.35rem 0.5rem; color:var(--text-muted); white-space:nowrap;"
+                        x-text="f.size_bytes != null ? (f.size_bytes/1024).toFixed(1)+' KB' : ''"></td>
+                    <td style="padding:0.35rem 0; text-align:right; white-space:nowrap;">
+                      <!-- Known DB column -->
+                      <span x-show="f.db_column && !f.missing"
+                            style="background:var(--bg-secondary); border:1px solid var(--border); border-radius:4px; padding:1px 7px; font-size:0.74rem; color:var(--text-muted);"
+                            x-text="f.db_column.replace(/_path$|_raw/g,'').replace(/_/g,' ')">
+                      </span>
+                      <!-- DB path but file missing from disk -->
+                      <span x-show="f.missing"
+                            style="background:#fef2f2; border:1px solid #fca5a5; border-radius:4px; padding:1px 7px; font-size:0.74rem; color:#dc2626;">
+                        ⚠ missing from disk
+                      </span>
+                      <!-- File on disk but not in DB -->
+                      <span x-show="!f.db_column && !f.missing"
+                            style="background:var(--bg-secondary); border:1px solid var(--border); border-radius:4px; padding:1px 7px; font-size:0.74rem; color:var(--text-muted);">
+                        untracked
+                      </span>
+                    </td>
+                  </tr>
+                </template>
+                <tr x-show="folderFiles.files.length === 0">
+                  <td colspan="3" class="text-sm text-muted" style="padding:0.5rem 0;">No CSV files found in session folder.</td>
+                </tr>
+              </table>
+            </div>
+          </template>
+          <div x-show="folderFilesError" class="alert alert-error text-sm mt-sm" x-text="folderFilesError"></div>
+        </div>
+
+        <!-- Calibration Quality (shown when calibration files exist) -->
+        <template x-if="(session.has_calibration_files || session.has_pressure_merge) && !session.test_type_name?.match(/^Test [45]/)">
+          <div class="card" x-data="{ calEntries: [], loading: true }"
+               x-init="api.get('/api/sessions/' + session.session_id + '/calibration').then(r => { $data.calEntries=r; $data.loading=false; }).catch(() => { $data.loading=false; })">
+            <h2>Files &amp; Calibration Quality</h2>
+            <p class="text-sm text-muted mb-md">
+              Expected cadence: 95 BPM. Files scoring below 60 are flagged as uncalibrated.
+            </p>
+            <div x-show="loading" class="text-sm text-muted">Analysing files…</div>
+            <template x-if="!loading">
+              <div>
+                <template x-for="entry in calEntries" :key="entry.key">
+                  <div class="cal-file-row">
+
+                    <!-- Header: label + filename + badges -->
+                    <div style="display:flex; align-items:baseline; gap:0.6rem; flex-wrap:wrap;">
+                      <span class="cal-file-type-badge"
+                            :class="entry.key === 'pressure_raw_path' ? 'cal-type-main' : 'cal-type-cal'"
+                            x-text="entry.label"></span>
+                      <span class="text-sm" style="font-family:monospace; color:var(--text-muted);" x-text="entry.filename"></span>
+                      <template x-if="entry.analysis && entry.analysis.error === null">
+                        <span style="display:inline-flex; align-items:center; gap:5px;">
+                          <span class="cal-score-badge"
+                                :class="entry.analysis.score >= 80 ? 'cal-score-good' : entry.analysis.score >= 60 ? 'cal-score-warn' : 'cal-score-bad'"
+                                x-text="entry.analysis.score.toFixed(0) + '/100'"></span>
+                          <span x-show="entry.analysis.uncalibrated" class="cal-uncalibrated-badge">UNCALIBRATED</span>
+                        </span>
+                      </template>
+                      <!-- Not yet uploaded to this session -->
+                      <span x-show="entry.uploaded === false" class="cal-uncalibrated-badge"
+                            style="background:#F3F4F6;color:#6B7280;border-color:#D1D5DB;">NOT UPLOADED</span>
+                      <!-- Path in DB but file not on disk -->
+                      <span x-show="entry.uploaded !== false && !entry.exists" class="cal-uncalibrated-badge"
+                            style="background:#FEF9C3;color:#713F12;border-color:#FDE68A;">FILE MISSING</span>
+                    </div>
+
+                    <!-- Upload prompt for missing cal files -->
+                    <div x-show="entry.uploaded === false"
+                         style="margin-top:0.4rem; font-size:0.8rem; color:var(--text-muted);">
+                      Click <strong>✏️ Edit</strong> above to upload this file.
+                    </div>
+
+                    <!-- Analysis body -->
+                    <template x-if="entry.analysis && entry.analysis.error === null">
+                      <div style="margin-top:0.5rem;">
+                        <div class="cal-score-bar-track">
+                          <div class="cal-score-bar-fill"
+                               :class="entry.analysis.score >= 80 ? 'cal-score-good' : entry.analysis.score >= 60 ? 'cal-score-warn' : 'cal-score-bad'"
+                               :style="'width:' + entry.analysis.score + '%'"></div>
+                        </div>
+                        <div class="detail-grid mt-sm" style="grid-template-columns: repeat(auto-fill, minmax(140px,1fr));">
+                          <div class="detail-field">
+                            <label>Duration</label>
+                            <div class="value" x-text="entry.analysis.duration_s + ' s'"></div>
+                          </div>
+                          <div class="detail-field">
+                            <label>Detected cadence</label>
+                            <div class="value" x-text="entry.analysis.detected_cadence + ' BPM'"></div>
+                          </div>
+                          <div class="detail-field">
+                            <label>Steps detected</label>
+                            <div class="value" x-text="entry.analysis.detected_steps + ' / ' + entry.analysis.expected_steps + ' expected'"></div>
+                          </div>
+                        </div>
+                        <details class="mt-sm">
+                          <summary class="text-sm" style="cursor:pointer; color:var(--text-muted);">More details</summary>
+                          <template x-if="entry.analysis.latency">
+                            <div class="mt-sm">
+                              <p class="text-sm" style="font-weight:600; margin-bottom:0.4rem;">System latency estimates</p>
+                              <div class="detail-grid" style="grid-template-columns: repeat(auto-fill, minmax(160px,1fr)); margin-bottom:0.5rem;">
+                                <div class="detail-field">
+                                  <label>Detection lag</label>
+                                  <div class="value" x-text="entry.analysis.latency.detection_lag_ms !== null ? entry.analysis.latency.detection_lag_ms + ' ms' : '—'"></div>
+                                  <div class="text-sm text-muted">lower → upper threshold</div>
+                                </div>
+                                <div class="detail-field">
+                                  <label>Cadence jitter (σ)</label>
+                                  <div class="value" x-text="entry.analysis.latency.cadence_jitter_ms + ' ms'"></div>
+                                  <div class="text-sm text-muted">std dev of step intervals</div>
+                                </div>
+                                <div class="detail-field">
+                                  <label>Mean step interval</label>
+                                  <div class="value" x-text="entry.analysis.latency.mean_interval_ms + ' ms'"></div>
+                                  <div class="text-sm text-muted" x-text="'expected ' + entry.analysis.latency.expected_interval_ms + ' ms'"></div>
+                                </div>
+                                <div class="detail-field">
+                                  <label>Timing offset</label>
+                                  <div class="value"
+                                       :style="Math.abs(entry.analysis.latency.timing_offset_ms) > 30 ? 'color:var(--danger)' : 'color:var(--success)'"
+                                       x-text="(entry.analysis.latency.timing_offset_ms > 0 ? '+' : '') + entry.analysis.latency.timing_offset_ms + ' ms'"></div>
+                                  <div class="text-sm text-muted">+ = late detection</div>
+                                </div>
+                              </div>
+                            </div>
+                          </template>
+                          <p class="text-sm" style="font-weight:600; margin-bottom:0.4rem; margin-top:0.5rem;">Threshold bounds</p>
+                          <table class="session-table" style="width:auto; font-size:0.8rem;">
+                            <thead><tr><th>Zone</th><th>Lower</th><th>Upper</th></tr></thead>
+                            <tbody>
+                              <template x-for="t in entry.analysis.thresholds" :key="t.zone">
+                                <tr>
+                                  <td x-text="t.label"></td>
+                                  <td x-text="t.lower"></td>
+                                  <td x-text="t.upper"></td>
+                                </tr>
+                              </template>
+                            </tbody>
+                          </table>
+                        </details>
+                      </div>
+                    </template>
+                    <div x-show="entry.analysis && entry.analysis.error !== null"
+                         class="text-sm mt-sm" style="color:var(--text-muted);"
+                         x-text="entry.analysis ? entry.analysis.error : ''"></div>
+                  </div>
+                </template>
+              </div>
+            </template>
+          </div>
+        </template>
+
+        <!-- Consciousness check (single row per session) -->
+        <template x-if="questionnaire.consciousness">
+          <div class="card">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
+              <h2 style="margin:0;">Consciousness Check</h2>
+              <button class="btn btn-sm btn-secondary"
+                      @click="$store.nav.pendingConsciousnessEdit = true; $store.nav.navigate('questionnaire')"
+                      title="Re-open the form to correct these responses">
+                ✏️ Edit responses
+              </button>
+            </div>
+            <div class="detail-grid">
+              <div class="detail-field">
+                <label>Post-calibration noticed</label>
+                <div class="value" x-text="questionnaire.consciousness.post_calibration_noticed === 1 ? 'Yes' : 'No'"></div>
+              </div>
+              <div class="detail-field">
+                <label>Cond 1 actual</label>
+                <div class="value" x-text="(questionnaire.consciousness.cond1_actual || '').replace('_', ' ')"></div>
+              </div>
+              <div class="detail-field">
+                <label>Cond 1 noticed</label>
+                <div class="value" x-text="questionnaire.consciousness.cond1_noticed === 1 ? 'Yes' : 'No'"></div>
+              </div>
+              <div class="detail-field">
+                <label>Cond 1 guessed</label>
+                <div class="value" x-text="(questionnaire.consciousness.cond1_guess || '-').replace('_', ' ')"></div>
+              </div>
+              <div class="detail-field">
+                <label>Cond 1 correct?</label>
+                <div class="value" x-text="questionnaire.consciousness.cond1_correct === true ? 'Yes' : questionnaire.consciousness.cond1_correct === false ? 'No' : '-'"></div>
+              </div>
+              <div class="detail-field">
+                <label>Cond 2 actual</label>
+                <div class="value" x-text="(questionnaire.consciousness.cond2_actual || '').replace('_', ' ')"></div>
+              </div>
+              <div class="detail-field">
+                <label>Cond 2 noticed</label>
+                <div class="value" x-text="questionnaire.consciousness.cond2_noticed === 1 ? 'Yes' : 'No'"></div>
+              </div>
+              <div class="detail-field">
+                <label>Cond 2 guessed</label>
+                <div class="value" x-text="(questionnaire.consciousness.cond2_guess || '-').replace('_', ' ')"></div>
+              </div>
+              <div class="detail-field">
+                <label>Cond 2 correct?</label>
+                <div class="value" x-text="questionnaire.consciousness.cond2_correct === true ? 'Yes' : questionnaire.consciousness.cond2_correct === false ? 'No' : '-'"></div>
+              </div>
+              <div class="detail-field">
+                <label>Post-session noticed</label>
+                <div class="value" x-text="questionnaire.consciousness.post_session_noticed === 1 ? 'Yes' : 'No'"></div>
+              </div>
+              <div class="detail-field">
+                <label>Post-session tempo guess</label>
+                <div class="value" x-text="(questionnaire.consciousness.post_session_tempo_guess || '-').replace('_', ' ')"></div>
+              </div>
+              <div class="detail-field">
+                <label>Post-session weight guess</label>
+                <div class="value" x-text="(questionnaire.consciousness.post_session_weight_guess || '-').replace('_', ' ')"></div>
+              </div>
+            </div>
+            <div class="detail-grid mt-sm"
+                 x-show="questionnaire.consciousness.post_calibration_text || questionnaire.consciousness.cond1_text || questionnaire.consciousness.cond2_text || questionnaire.consciousness.post_session_text">
+              <div class="detail-field" x-show="questionnaire.consciousness.post_calibration_text">
+                <label>Post-calibration notes</label>
+                <div class="value" x-text="questionnaire.consciousness.post_calibration_text"></div>
+              </div>
+              <div class="detail-field" x-show="questionnaire.consciousness.cond1_text">
+                <label>Cond 1 notes</label>
+                <div class="value" x-text="questionnaire.consciousness.cond1_text"></div>
+              </div>
+              <div class="detail-field" x-show="questionnaire.consciousness.cond2_text">
+                <label>Cond 2 notes</label>
+                <div class="value" x-text="questionnaire.consciousness.cond2_text"></div>
+              </div>
+              <div class="detail-field" x-show="questionnaire.consciousness.post_session_text">
+                <label>Post-session notes</label>
+                <div class="value" x-text="questionnaire.consciousness.post_session_text"></div>
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <!-- Overall ratings (single, session-level) -->
+        <template x-if="questionnaire.ratings">
+          <div class="card">
+            <h2>Overall Ratings</h2>
+            <div class="score-display mb-md">
+              <div class="score-item">
+                <div class="score-label">Agency</div>
+                <div class="score-value" x-text="questionnaire.ratings.agency_aggregate?.toFixed(2)"></div>
+              </div>
+              <div class="score-item">
+                <div class="score-label">UEQ-S Pragmatic</div>
+                <div class="score-value" x-text="questionnaire.ratings.ueqs_pragmatic?.toFixed(2)"></div>
+              </div>
+              <div class="score-item">
+                <div class="score-label">ARI Immersion</div>
+                <div class="score-value" x-text="questionnaire.ratings.ari_immersion?.toFixed(2)"></div>
+              </div>
+            </div>
+
+            <div class="detail-grid">
+              <div class="detail-field">
+                <label>Agency Q1</label>
+                <div class="value" x-text="questionnaire.ratings.agency_q1"></div>
+              </div>
+              <div class="detail-field">
+                <label>Agency Q2</label>
+                <div class="value" x-text="questionnaire.ratings.agency_q2"></div>
+              </div>
+              <div class="detail-field">
+                <label>Agency Q3</label>
+                <div class="value" x-text="questionnaire.ratings.agency_q3"></div>
+              </div>
+              <div class="detail-field">
+                <label>Submitted</label>
+                <div class="value" x-text="formatDate(questionnaire.ratings.submitted_at)"></div>
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <div class="card" x-show="!questionnaire.consciousness && !questionnaire.ratings">
+          <p class="text-muted">No questionnaire responses submitted for this session.</p>
+        </div>
+
+        <!-- Tags -->
+        <div class="card" x-data="tagPanelData(null)" x-init="init()">
+          <h2>
+            Tags
+            <span class="text-muted text-sm" x-show="sessionTags.length > 0"
+                  x-text="`(${sessionTags.length})`"></span>
+          </h2>
+          <p class="text-sm text-muted mb-md">
+            Flags about this session: bugs, processing caveats, stages to revisit.
+          </p>
+
+          <div class="tag-chip-row mb-md" x-show="frequentTags.length > 0">
+            <span class="text-sm text-muted">Frequent:</span>
+            <template x-for="ft in frequentTags" :key="ft.tag">
+              <span class="tag-chip" @click="addTag(ft.tag)">
+                <span x-text="ft.tag"></span>
+                <span class="count" x-text="ft.count"></span>
+              </span>
+            </template>
+          </div>
+
+          <div style="display:flex; gap:0.5rem; align-items:center; margin-bottom:0.75rem;">
+            <input type="text" x-model="newTagText"
+                   @keydown.enter.prevent="addCustomTag()"
+                   placeholder="e.g. glitch, redo, artefact" maxlength="64"
+                   style="flex:1; min-width:0;">
+            <button class="btn btn-sm btn-primary" @click="addCustomTag()" :disabled="busy || !newTagText.trim()">
+              + Add
+            </button>
+          </div>
+
+          <div class="tag-chip-row" x-show="sessionTags.length > 0">
+            <template x-for="t in sessionTags" :key="t.tag_id">
+              <span class="tag-chip session-tag removable">
+                <span x-text="t.tag"></span>
+                <span class="stage-badge" x-show="t.stage" x-text="t.stage"></span>
+                <span class="text-sm" x-show="t.note" x-text="`(${t.note})`"></span>
+                <span class="text-sm text-muted" x-show="t.device_ms"
+                      x-text="`@ ${formatDeviceMs(t.device_ms)}`"></span>
+                <span class="x" @click="deleteTag(t.tag_id)" title="Remove">×</span>
+              </span>
+            </template>
+          </div>
+
+          <p class="text-sm text-muted" x-show="sessionTags.length === 0">
+            No tags on this session.
+          </p>
+
+          <div class="alert alert-error" x-show="error" x-text="error"></div>
+        </div>
+      </div>
+    </template>
+  </section>
+
+  <!-- ==================== IMPORT ==================== -->
+  <section class="view" :class="{ active: $store.nav.view === 'import' }" id="view-import"
+           x-data="importData()" x-init="$watch('$store.nav.view', v => { if(v==='import') init(); })">
+    <h2 class="mb-md" style="display:flex; align-items:center; gap:0.5rem;">
+      Import Historical Data
+      <span class="help-icon">?
+        <span class="help-tooltip">
+          <strong>How to import historical data</strong><br><br>
+          1. Copy your Max/MSP CSV files into the <code style="background:rgba(255,255,255,0.15);padding:1px 4px;border-radius:3px;">data/import/</code> folder inside this project directory.<br><br>
+          2. Click <strong>Scan for files</strong> to see what's available.<br><br>
+          3. Fill in the participant details and select the main pressure file (30 s). For Test 1, you can also assign up to 3 calibration files (10 s each).<br><br>
+          4. Tick <em>Mark as complete immediately</em> if the test type has no questionnaire steps.<br><br>
+          5. Click <strong>Import Session</strong> — files are copied into the session folder and a record is created in the database.
+        </span>
+      </span>
+    </h2>
+
+    <!-- Scan -->
+    <div class="card mb-md">
+      <div style="display:flex; align-items:center; gap:1rem; flex-wrap:wrap;">
+        <button class="btn btn-secondary" @click="scan()" :disabled="loadingFiles">
+          <span x-show="!loadingFiles">Scan for files</span>
+          <span x-show="loadingFiles">Scanning…</span>
+        </button>
+        <span class="text-sm text-muted" x-show="scannedFiles.length > 0" x-text="`Found ${scannedFiles.length} file(s) in data/import/`"></span>
+      </div>
+      <p class="text-sm" style="color:var(--danger); margin-top:0.5rem;" x-show="scanError" x-text="scanError"></p>
+
+      <div x-show="scannedFiles.length > 0" class="mt-md">
+        <p class="text-sm text-muted mb-sm"
+           x-text="`${availableFiles.length} available · ${scannedFiles.length - availableFiles.length} already imported`"></p>
+        <table class="session-table" x-show="availableFiles.length > 0">
+          <thead>
+            <tr>
+              <th>Filename</th><th>Rows</th><th>Size</th><th>Reliability score</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="f in availableFiles" :key="f.filename">
+              <tr>
+                <td x-text="f.filename"></td>
+                <td x-text="f.row_count"></td>
+                <td x-text="(f.size_bytes / 1024).toFixed(1) + ' KB'"></td>
+                <td>
+                  <template x-if="f.calibration_analysis && f.calibration_analysis.error === null">
+                    <span style="display:inline-flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                      <span class="cal-score-badge"
+                            :class="f.calibration_analysis.score >= 80 ? 'cal-score-good' : f.calibration_analysis.score >= 60 ? 'cal-score-warn' : 'cal-score-bad'"
+                            x-text="f.calibration_analysis.score.toFixed(0) + '/100'"></span>
+                      <span class="text-sm text-muted"
+                            x-text="f.calibration_analysis.detected_cadence + ' BPM · ' + f.calibration_analysis.detected_steps + ' steps / ' + f.calibration_analysis.duration_s + 's'"></span>
+                      <span x-show="f.calibration_analysis.uncalibrated" class="cal-uncalibrated-badge">UNCALIBRATED</span>
+                    </span>
+                  </template>
+                  <template x-if="f.calibration_analysis && f.calibration_analysis.error !== null">
+                    <span class="text-sm text-muted" x-text="f.calibration_analysis.error"></span>
+                  </template>
+                  <template x-if="!f.calibration_analysis">
+                    <span class="text-sm text-muted">—</span>
+                  </template>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+        <p class="text-sm text-muted" x-show="availableFiles.length === 0">
+          All files in this folder have already been imported.
+        </p>
+      </div>
+    </div>
+
+    <!-- Import form -->
+    <div class="card mb-md">
+      <h3 class="mb-md">Import a Session</h3>
+
+      <!-- Participant details -->
+      <p class="import-section-label">Participant</p>
+      <div class="import-grid">
+        <div>
+          <label class="field-label">Participant ID <span class="req-star">*</span></label>
+          <input class="field-input" x-model="participantId" placeholder="01" maxlength="2"
+                 :class="{ 'field-invalid': submitAttempted && !/^\d{2}$/.test(participantId) }">
+        </div>
+        <div>
+          <label class="field-label">Gender <span class="req-star">*</span></label>
+          <select class="field-input" x-model="gender"
+                  :class="{ 'field-invalid': submitAttempted && !gender.trim() }">
+            <option value="">— select —</option>
+            <option>Male</option>
+            <option>Female</option>
+            <option>Prefer not to say</option>
+          </select>
+        </div>
+        <div>
+          <label class="field-label">UK Shoe Size</label>
+          <input class="field-input" x-model="shoeSize" placeholder="8">
+        </div>
+        <div>
+          <label class="field-label">Insole Size</label>
+          <select class="field-input" x-model="insoleSize">
+            <option :value="null">— none —</option>
+            <option>S</option><option>M</option><option>L</option>
+          </select>
+        </div>
+        <div>
+          <label class="field-label">Age</label>
+          <input class="field-input" type="number" x-model="age" placeholder="25" min="1" max="120">
+        </div>
+        <div>
+          <label class="field-label">Injuries</label>
+          <input class="field-input" x-model="injuries" placeholder="none">
+        </div>
+      </div>
+
+      <!-- Session config -->
+      <p class="import-section-label" style="margin-top:1.25rem;">Session</p>
+      <div class="import-grid">
+        <div style="grid-column: span 2;">
+          <label class="field-label">Test Type <span class="req-star">*</span></label>
+          <select class="field-input" x-model="testTypeId"
+                  :class="{ 'field-invalid': submitAttempted && !testTypeId }">
+            <template x-for="tt in testTypes" :key="tt.test_type_id">
+              <option :value="tt.test_type_id" x-text="tt.name"></option>
+            </template>
+          </select>
+        </div>
+        <div style="grid-column: span 2;">
+          <label class="field-label">Date &amp; Time <span class="req-star">*</span></label>
+          <input class="field-input" type="datetime-local" x-model="sessionDate"
+                 :class="{ 'field-invalid': submitAttempted && !sessionDate }">
+        </div>
+        <div style="grid-column: span 2;">
+          <label class="field-label">Main pressure file (30s) <span class="req-star">*</span></label>
+          <select class="field-input" x-model="mainFile"
+                  :class="{ 'field-invalid': submitAttempted && !mainFile }">
+            <option value="">— select file —</option>
+            <template x-for="f in availableFiles" :key="f.filename">
+              <option :value="f.filename" x-text="f.filename"></option>
+            </template>
+          </select>
+          <p class="text-sm text-muted mt-sm" x-show="!scannedFiles.length">
+            Scan for files first to populate this list.
+          </p>
+        </div>
+      </div>
+
+      <!-- Calibration files (Test 1 only) -->
+      <template x-if="showCalFiles">
+        <div>
+          <p class="import-section-label" style="margin-top:1.25rem;">Calibration files (10s, optional)</p>
+          <div class="import-grid">
+            <div>
+              <label class="field-label">File 1</label>
+              <select class="field-input" x-model="calFile1">
+                <option value="">— none —</option>
+                <template x-for="f in availableFiles" :key="f.filename">
+                  <option :value="f.filename" x-text="f.filename"></option>
+                </template>
+              </select>
+            </div>
+            <div>
+              <label class="field-label">File 2</label>
+              <select class="field-input" x-model="calFile2">
+                <option value="">— none —</option>
+                <template x-for="f in availableFiles" :key="f.filename">
+                  <option :value="f.filename" x-text="f.filename"></option>
+                </template>
+              </select>
+            </div>
+            <div>
+              <label class="field-label">File 3</label>
+              <select class="field-input" x-model="calFile3">
+                <option value="">— none —</option>
+                <template x-for="f in availableFiles" :key="f.filename">
+                  <option :value="f.filename" x-text="f.filename"></option>
+                </template>
+              </select>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <!-- Notes -->
+      <p class="import-section-label" style="margin-top:1.25rem;">Notes</p>
+      <div class="import-grid">
+        <div>
+          <label class="field-label">Setup</label>
+          <textarea class="field-input" x-model="notesSetup" rows="2" placeholder="sensor placement, etc."></textarea>
+        </div>
+        <div>
+          <label class="field-label">Data</label>
+          <textarea class="field-input" x-model="notesData" rows="2" placeholder="data quality, anomalies, etc."></textarea>
+        </div>
+        <div style="grid-column: span 2;">
+          <label class="field-label">General</label>
+          <textarea class="field-input" x-model="notes" rows="2"></textarea>
+        </div>
+      </div>
+
+      <label style="display:flex; align-items:center; gap:0.5rem; margin-top:1.25rem; margin-bottom:1rem; cursor:pointer;">
+        <input type="checkbox" x-model="autoComplete">
+        <span class="text-sm">Mark as complete immediately (if test type requires no questionnaire)</span>
+      </label>
+
+      <!-- Validation summary -->
+      <div x-show="submitAttempted && !canImport" class="import-validation-msg">
+        <template x-if="!/^\d{2}$/.test(participantId)"><div>· Participant ID must be two digits (e.g. 01)</div></template>
+        <template x-if="!gender.trim()"><div>· Gender is required</div></template>
+        <template x-if="!testTypeId"><div>· Test type is required</div></template>
+        <template x-if="!sessionDate"><div>· Date &amp; time is required</div></template>
+        <template x-if="!mainFile"><div>· Main pressure file must be selected</div></template>
+      </div>
+
+      <p class="text-sm" style="color:var(--danger); margin-bottom:0.5rem;" x-show="submitError" x-text="submitError"></p>
+
+      <button class="btn btn-primary" @click="importSession()">
+        <span x-show="!submitting">Import Session</span>
+        <span x-show="submitting">Importing…</span>
+      </button>
+    </div>
+
+    <!-- Recently imported -->
+    <div x-show="recentImports.length > 0" class="card">
+      <h3 class="mb-md">Recently Imported</h3>
+      <table class="session-table">
+        <thead><tr><th>#</th><th>Participant</th><th>Test Type</th><th>Status</th><th>Date</th></tr></thead>
+        <tbody>
+          <template x-for="s in recentImports" :key="s.session_id">
+            <tr>
+              <td x-text="s.session_number"></td>
+              <td x-text="s.participant_id"></td>
+              <td x-text="s.test_type_name"></td>
+              <td x-text="s.status"></td>
+              <td x-text="formatDate(s.session_date)"></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ==================== DIAGNOSTICS ==================== -->
+  <section class="view" :class="{ active: $store.nav.view === 'diagnostics' }" id="view-diagnostics"
+           x-data="diagnosticsData()" x-init="init()">
+    <h2 class="mb-md">Diagnostics</h2>
+    <p class="text-sm text-muted mb-md">
+      Run hardware and system checks. New tests can be added on the backend
+      in <code>routers/diagnostics.py</code>.
+    </p>
+
+    <div class="card" x-show="tests.length === 0">
+      <p class="text-muted">Loading tests...</p>
+    </div>
+
+    <template x-for="t in tests" :key="t.id">
+      <div class="card">
+        <div class="flex-between">
+          <div style="flex: 1;">
+            <h3 style="margin-bottom: 4px;" x-text="t.name"></h3>
+            <p class="text-sm text-muted" x-text="t.description"></p>
+          </div>
+          <div style="display: flex; gap: 0.5rem; align-items: center;">
+            <span class="diag-status" :class="results[t.id]?.status || 'idle'"
+                  x-text="(results[t.id]?.status || 'idle').toUpperCase()"></span>
+            <button class="btn btn-sm btn-primary" @click="runTest(t.id)"
+                    :disabled="!!running[t.id]">
+              <span x-show="!running[t.id]">Run</span>
+              <span x-show="!!running[t.id]">Running...</span>
+            </button>
+          </div>
+        </div>
+
+        <template x-if="results[t.id]">
+          <div class="mt-md">
+            <div class="alert"
+                 :class="{
+                   'alert-success': results[t.id].status === 'pass',
+                   'alert-warning': results[t.id].status === 'warn',
+                   'alert-error':   results[t.id].status === 'fail'
+                 }">
+              <strong x-text="results[t.id].message"></strong>
+              <span class="text-sm text-muted" style="margin-left: 0.5rem;"
+                    x-text="`(${results[t.id].duration_ms} ms)`"></span>
+            </div>
+
+            <details x-show="results[t.id].details && results[t.id].details.length > 0"
+                     class="mt-sm">
+              <summary class="text-sm" style="cursor: pointer;">Details</summary>
+              <pre class="diag-details"><template x-for="line in results[t.id].details"><div x-text="line"></div></template></pre>
+            </details>
+          </div>
+        </template>
+      </div>
+    </template>
+  </section>
+
+  <!-- Scripts -->
+  <script src="/static/vendor/alpine.min.js" defer></script>
+  <script src="/static/js/api.js?v=2"></script>
+  <script src="/static/js/ws-client.js?v=2"></script>
+  <script src="/static/js/live-chart.js?v=2"></script>
+  <script src="/static/js/keyboard.js?v=2"></script>
+  <script src="/static/js/file-upload.js?v=3"></script>
+  <script src="/static/js/questionnaire.js?v=6"></script>
+  <script src="/static/js/tags.js?v=3"></script>
+  <script src="/static/js/imu-dump.js?v=3"></script>
+  <script src="/static/js/import-data.js?v=2"></script>
+  <script src="/static/js/app.js?v=4"></script>
+
+  <!-- View-specific Alpine data functions -->
+  <script>
+    function sortTestTypes(types) {
+      return types.slice().sort((a, b) => {
+        const num = s => { const m = s.name.match(/\d+/); return m ? parseInt(m[0], 10) : Infinity; };
+        return num(a) - num(b);
+      });
+    }
+
+    // Dashboard (also handles old History features when editMode = true)
+    function dashboardData() {
+      return {
+        editMode: false,
+        selectedTestType: null,
+        selectedParticipant: null,
+        tsChecks: {},
+        showingTrash: false,
+        trashSessions: [],
+        testTypes: [],   // loaded for target_participants lookups
+
+        init() {
+          this.loadTrash();
+          this.$watch('$store.nav.view', v => {
+            if (v === 'dashboard') {
+              try { api.get('/api/test_types').then(r => { this.testTypes = r; }); } catch {}
+            }
+          });
+        },
+
+        sessionHasWarning(s) {
+          if (s.status === 'complete' || s.status === 'in-progress') return false;
+          if (s.has_imu_dump && !s.imu_raw_path) return true;
+          if (s.has_pressure_merge && !s.merged_path) return true;
+          return s.status === 'imu-saved' || s.status === 'merged';
+        },
+
+        sessionWarningReason(s) {
+          if (s.has_imu_dump && !s.imu_raw_path) return 'IMU data not yet recorded for this session';
+          if (s.has_pressure_merge && !s.merged_path) return 'Pressure data has not been merged yet';
+          if (s.status === 'imu-saved') return 'IMU saved — pressure file not yet uploaded';
+          if (s.status === 'merged') return 'Merged — questionnaire not yet submitted';
+          return 'Session incomplete';
+        },
+
+
+        get tree() {
+          const sessions = Alpine.store('session').sessions;
+          const map = new Map();
+          for (const s of sessions) {
+            const ttName = s.test_type_name || 'Unknown';
+            if (!map.has(ttName)) map.set(ttName, new Map());
+            const pMap = map.get(ttName);
+            if (!pMap.has(s.participant_id)) pMap.set(s.participant_id, []);
+            pMap.get(s.participant_id).push(s);
+          }
+          const tree = [];
+          for (const [ttName, pMap] of map) {
+            const participants = [];
+            for (const [pid, sess] of pMap) {
+              const hasWarning = sess.some(s => this.sessionHasWarning(s));
+              participants.push({ id: pid, sessions: sess, hasWarning });
+            }
+            participants.sort((a, b) => a.id.localeCompare(b.id));
+            const hasWarning = participants.some(p => p.hasWarning);
+            const shortName = ttName.replace(/:.*$/, '').trim();
+            const test_type_id = [...pMap.values()][0][0].test_type_id;
+            const ttData = this.testTypes.find(t => t.test_type_id === test_type_id) || {};
+            tree.push({
+              name: ttName, shortName, participants, hasWarning, test_type_id,
+              has_calibration:           ttData.has_calibration           ?? 0,
+              has_calibration_files:     ttData.has_calibration_files     ?? 0,
+              has_audio_familiarisation: ttData.has_audio_familiarisation ?? 0,
+              has_condition_1:           ttData.has_condition_1           ?? 0,
+              has_condition_2:           ttData.has_condition_2           ?? 0,
+              has_imu_dump:              ttData.has_imu_dump              ?? 0,
+              has_pressure_merge:        ttData.has_pressure_merge        ?? 0,
+              has_consciousness_check:   ttData.has_consciousness_check   ?? 0,
+              has_overall_ratings:       ttData.has_overall_ratings       ?? 0,
+            });
+          }
+          return sortTestTypes(tree.map(t => ({ ...t, name: t.name })));
+        },
+
+        get breadcrumb() {
+          const crumbs = [{ label: 'All Sessions', action: () => this.selectRoot() }];
+          if (this.selectedTestType) {
+            const tt = this.selectedTestType;
+            crumbs.push({ label: tt.shortName, action: () => this.selectTestType(tt) });
+          }
+          if (this.selectedParticipant) {
+            const p = this.selectedParticipant;
+            crumbs.push({ label: p.id, action: () => {} });
+          }
+          return crumbs;
+        },
+
+        _folderIcon(count) {
+          if (count >= 20) return '/static/icons/full.svg';
+          if (count >= 15) return '/static/icons/high.svg';
+          if (count >= 8)  return '/static/icons/medium.svg';
+          return '/static/icons/low.svg';
+        },
+
+        _folderIconPct(pct) {
+          if (pct >= 76) return '/static/icons/full.svg';
+          if (pct >= 51) return '/static/icons/high.svg';
+          if (pct >= 26) return '/static/icons/medium.svg';
+          return '/static/icons/low.svg';
+        },
+
+        get visibleItems() {
+          if (!this.selectedTestType) {
+            return this.tree.map(tt => {
+              const count = tt.participants.length;
+              const ttData = this.testTypes.find(t => t.test_type_id === tt.test_type_id);
+              const target = ttData?.target_participants || 0;
+              let icon = this._folderIcon(count);
+              let meta = `${count} participant${count !== 1 ? 's' : ''}`;
+              if (target > 0) {
+                const pct = Math.round(count / target * 100);
+                icon = this._folderIconPct(Math.min(100, pct));
+                meta = `${count} / ${target} (${pct}%)`;
+              }
+              return {
+                name: tt.shortName, meta, hasWarning: tt.hasWarning, icon,
+                sessions: tt.participants.flatMap(p => p.sessions),
+                action: () => this.selectTestType(tt),
+              };
+            });
+          }
+          // Participant-level folders kept for sidebar/breadcrumb use; main area uses flat table
+          return this.selectedTestType.participants.map(p => ({
+            name: p.id,
+            meta: `${p.sessions.length} session${p.sessions.length !== 1 ? 's' : ''}`,
+            hasWarning: p.hasWarning,
+            icon: this._folderIcon(p.sessions.length),
+            sessions: p.sessions,
+            action: () => this.selectParticipant(this.selectedTestType, p),
+          }));
+        },
+
+        get testTypeSessions() {
+          // All sessions for the selected test type, sorted by date/time
+          if (!this.selectedTestType) return [];
+          // Inline date parser — avoids dependency on global parseDate (caching safe)
+          const _pd = d => !d ? new Date(0) : (d.includes(' ') && !d.includes('T') ? new Date(d.replace(' ', 'T') + 'Z') : new Date(d));
+          return this.selectedTestType.participants
+            .flatMap(p => p.sessions)
+            .sort((a, b) => _pd(a.session_date) - _pd(b.session_date));
+        },
+
+        get randStats() {
+          // Only meaningful when a test type with both conditions is selected
+          if (!this.selectedTestType?.has_condition_1 || !this.selectedTestType?.has_condition_2) return null;
+          const sessions = this.testTypeSessions.filter(s => s.condition_order);
+          const n = sessions.length;
+          if (n === 0) return null;
+          const aFirst  = sessions.filter(s => s.condition_order  === 'A-first').length;
+          const speedUp = sessions.filter(s => s.tempo_direction  === 'speeding_up').length;
+          const heavier = sessions.filter(s => s.weight_direction === 'increasing').length;
+          return {
+            n,
+            aFirst,  bFirst:   n - aFirst,
+            speedUp, slowDown: n - speedUp,
+            heavier, lighter:  n - heavier,
+          };
+        },
+
+        selectRoot() {
+          this.selectedTestType = null;
+          this.selectedParticipant = null;
+        },
+        selectTestType(tt) {
+          this.selectedTestType = tt;
+          this.selectedParticipant = null;
+          this.loadTsChecksForTestType();
+        },
+
+        async loadTsChecksForTestType() {
+          if (!this.selectedTestType) return;
+          const sessions = this.testTypeSessions.filter(s => s.imu_raw_path && s.pressure_raw_path);
+          await Promise.all(sessions.map(async s => {
+            try {
+              const result = await api.get(`/api/sessions/${s.session_id}/ts-check`);
+              this.tsChecks = { ...this.tsChecks, [s.session_id]: result };
+            } catch { /* silently ignore */ }
+          }));
+        },
+
+        selectParticipant(tt, p) {
+          this.selectedTestType = tt;
+          this.selectedParticipant = p;
+        },
+
+        openSession(s) {
+          if (s.status === 'in-progress') {
+            window.location.hash = `#/session/${s.session_id}/live`;
+          } else if (s.status === 'imu-saved') {
+            window.location.hash = `#/session/${s.session_id}/post`;
+          } else {
+            this.viewDetail(s);
+          }
+        },
+        viewDetail(s) {
+          window.location.hash = `#/session/${s.session_id}/detail`;
+        },
+        exportAll() {
+          window.open('/api/export/all', '_blank');
+        },
+        downloadSummary() {
+          window.open('/api/export/summary.xlsx', '_blank');
+        },
+        async loadTrash() {
+          try {
+            this.trashSessions = await api.get('/api/sessions/trash');
+          } catch (e) {
+            this.trashSessions = [];
+          }
+          // Load test types for target_participants lookups (non-blocking)
+          try {
+            this.testTypes = await api.get('/api/test_types');
+          } catch {}
+        },
+
+        async openTrash() {
+          this.showingTrash = true;
+          this.selectedTestType = null;
+          this.selectedParticipant = null;
+          await this.loadTrash();
+        },
+
+        closeTrash() {
+          this.showingTrash = false;
+        },
+
+        async restoreSession(id) {
+          try {
+            await api.post(`/api/sessions/${id}/restore`);
+            await Promise.all([this.loadTrash(), Alpine.store('session').loadSessions()]);
+          } catch (e) {
+            alert('Restore failed: ' + e.message);
+          }
+        },
+
+        async permanentDelete(id, pid) {
+          if (!confirm(`Permanently delete session for ${pid}? This cannot be undone.`)) return;
+          try {
+            await fetch(`/api/sessions/${id}/permanent`, { method: 'DELETE' });
+            await this.loadTrash();
+          } catch (e) {
+            alert('Delete failed: ' + e.message);
+          }
+        },
+
+        async emptyTrash() {
+          const count = this.trashSessions.length;
+          if (!count) return;
+          if (!confirm(`Permanently delete all ${count} session${count !== 1 ? 's' : ''} in trash? This cannot be undone.`)) return;
+          try {
+            for (const s of this.trashSessions) {
+              await fetch(`/api/sessions/${s.session_id}/permanent`, { method: 'DELETE' });
+            }
+            await this.loadTrash();
+          } catch (e) {
+            alert('Empty trash failed: ' + e.message);
+          }
+        },
+
+        async deleteFolder(sessions, label) {
+          const count = sessions.length;
+          if (!count) return;
+          if (!confirm(`Move "${label}" and all ${count} session${count !== 1 ? 's' : ''} to trash?`)) return;
+          try {
+            for (const s of sessions) {
+              await fetch(`/api/sessions/${s.session_id}`, { method: 'DELETE' });
+            }
+            this.selectedParticipant = null;
+            this.selectedTestType = null;
+            await Alpine.store('session').loadSessions();
+            await this.loadTrash();
+          } catch (e) {
+            alert('Delete failed: ' + e.message);
+          }
+        },
+
+        async deleteSession(id, pid) {
+          if (!confirm(`Move session for ${pid} to trash?`)) return;
+          try {
+            await fetch(`/api/sessions/${id}`, { method: 'DELETE' });
+            await Alpine.store('session').loadSessions();
+            await this.loadTrash();
+          } catch (e) {
+            alert('Delete failed: ' + e.message);
+          }
+        },
+      };
+    }
+
+    // Setup
+    function setupData() {
+      const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+
+      const KNOWN_GENDERS = ['Male', 'Female', 'Prefer not to say'];
+      return {
+        participantId: '',
+        // Test type
+        testTypeId: null,
+        testTypes: [],
+        // Condition assignment
+        conditionOrder: pick(['A-first', 'B-first']),
+        tempoDirection: pick(['speeding_up', 'slowing_down']),
+        weightDirection: pick(['increasing', 'decreasing']),
+        // Notes (split)
+        notesSetup: '',
+        notesUse: '',
+        notesData: '',
+        notes: '',
+        // Demographics
+        shoeSize: '',
+        insoleSize: '',
+        age: null,
+        injuries: '',
+        genderChoice: '',
+        genderOther: '',
+        demographicsExist: false,
+        priorSessions: [],
+        creating: false,
+        error: null,
+        get selectedTestType() {
+          return this.testTypes.find(t => t.test_type_id === this.testTypeId) || null;
+        },
+        get testTypeRunsConditions() {
+          const t = this.selectedTestType;
+          return !!(t && (t.has_condition_1 || t.has_condition_2));
+        },
+        get testTypeFlagPills() {
+          const t = this.selectedTestType;
+          if (!t) return [];
+          return [
+            { label: 'Calibration',          on: !!t.has_calibration },
+            { label: 'Audio familiarisation', on: !!t.has_audio_familiarisation },
+            { label: 'Condition 1',          on: !!t.has_condition_1 },
+            { label: 'Condition 2',          on: !!t.has_condition_2 },
+            { label: 'IMU dump',             on: !!t.has_imu_dump },
+            { label: 'Pressure merge',       on: !!t.has_pressure_merge },
+            { label: 'Consciousness check',  on: !!t.has_consciousness_check },
+            { label: 'Overall ratings',      on: !!t.has_overall_ratings },
+          ];
+        },
+
+        randomize() {
+          this.conditionOrder = pick(['A-first', 'B-first']);
+          this.tempoDirection = pick(['speeding_up', 'slowing_down']);
+          this.weightDirection = pick(['increasing', 'decreasing']);
+        },
+
+        onGenderChange() {
+          if (this.genderChoice !== 'Other') this.genderOther = '';
+        },
+
+        get gender() {
+          if (this.genderChoice === 'Other') return this.genderOther.trim();
+          return this.genderChoice;
+        },
+
+        get canCreate() {
+          return (
+            /^\d{2}$/.test(this.participantId)
+            && this.testTypeId !== null
+            && this.shoeSize.trim().length > 0
+            && this.insoleSize.length > 0
+            && this.age !== null && this.age !== '' && !isNaN(this.age)
+            && this.gender.length > 0
+            && this.injuries.trim().length > 0
+          );
+        },
+
+        get missingFields() {
+          const missing = [];
+          if (!/^\d{2}$/.test(this.participantId)) missing.push('Participant ID');
+          if (this.testTypeId === null) missing.push('Test Type');
+          if (!this.shoeSize.trim()) missing.push('Shoe Size');
+          if (!this.insoleSize) missing.push('Insole Size');
+          if (this.age === null || this.age === '' || isNaN(this.age)) missing.push('Age');
+          if (!this.gender) missing.push('Gender');
+          if (!this.injuries.trim()) missing.push('Injuries / Notes about participant');
+          return missing;
+        },
+
+        async createSession() {
+          this.creating = true;
+          this.error = null;
+
+          try {
+            await api.post('/api/participants', {
+              participant_id: this.participantId,
+              shoe_size: this.shoeSize,
+              insole_size: this.insoleSize || null,
+              age: this.age,
+              gender: this.gender,
+              injuries: this.injuries,
+            });
+
+            const sessionPayload = {
+              participant_id: this.participantId,
+              test_type_id: this.testTypeId,
+              notes_setup: this.notesSetup,
+              notes_use: this.notesUse,
+              notes_data: this.notesData,
+              notes: this.notes,
+            };
+            // Only include condition fields if the test type runs conditions.
+            if (this.testTypeRunsConditions) {
+              sessionPayload.condition_order = this.conditionOrder;
+              sessionPayload.tempo_direction = this.tempoDirection;
+              sessionPayload.weight_direction = this.weightDirection;
+            }
+            const session = await api.post('/api/sessions', sessionPayload);
+
+            Alpine.store('session').currentSessionId = session.session_id;
+            Alpine.store('session').currentSession = session;
+            Alpine.store('session').isRecording = false;
+
+            window.location.hash = `#/session/${session.session_id}/live`;
+          } catch (e) {
+            this.error = e.message;
+          } finally {
+            this.creating = false;
+          }
+        },
+
+        _nextAvailableId() {
+          const used = new Set(
+            Alpine.store('session').sessions.map(s => s.participant_id)
+          );
+          for (let i = 1; i <= 99; i++) {
+            const id = String(i).padStart(2, '0');
+            if (!used.has(id)) return id;
+          }
+          return '';
+        },
+
+        async init() {
+          // Load test types so the dropdown can populate.
+          try {
+            this.testTypes = sortTestTypes(await api.get('/api/test_types'));
+            // Default to "Test 3: Full study" if it exists, else the first.
+            const full = this.testTypes.find(t => t.name && t.name.toLowerCase().includes('full'));
+            this.testTypeId = (full || this.testTypes[0])?.test_type_id ?? null;
+          } catch (e) {
+            console.warn('Could not load test types:', e);
+          }
+
+          // Pre-fill with the lowest available participant ID.
+          await Alpine.store('session').loadSessions();
+          this.participantId = this._nextAvailableId();
+
+          this.$watch('$store.nav.view', async v => {
+            if (v === 'setup') {
+              try {
+                this.testTypes = sortTestTypes(await api.get('/api/test_types'));
+              } catch (e) {
+                console.warn('Could not refresh test types:', e);
+              }
+              await Alpine.store('session').loadSessions();
+              this.participantId = this._nextAvailableId();
+            }
+          });
+
+          this.$watch('participantId', async (val) => {
+            if (/^\d{2}$/.test(val)) {
+              try {
+                const summary = await api.get(`/api/participants/${val}/summary`);
+                const p = summary.participant;
+                this.priorSessions = summary.sessions;
+                this.demographicsExist = true;
+
+                this.shoeSize = p.shoe_size || '';
+                this.insoleSize = p.insole_size || '';
+                this.age = p.age;
+                this.injuries = p.injuries || '';
+                if (p.gender) {
+                  if (KNOWN_GENDERS.includes(p.gender)) {
+                    this.genderChoice = p.gender;
+                    this.genderOther = '';
+                  } else {
+                    this.genderChoice = 'Other';
+                    this.genderOther = p.gender;
+                  }
+                }
+
+                if (summary.sessions.length > 0) {
+                  const prev = summary.sessions[0];
+                  this.conditionOrder = prev.condition_order || this.conditionOrder;
+                  this.tempoDirection = prev.tempo_direction || this.tempoDirection;
+                  this.weightDirection = prev.weight_direction || this.weightDirection;
+                }
+              } catch {
+                this.demographicsExist = false;
+                this.priorSessions = [];
+              }
+            } else {
+              this.demographicsExist = false;
+              this.priorSessions = [];
+            }
+          });
+        },
+      };
+    }
+
+    // Live session
+    function liveSessionData() {
+      return {
+        chart: null,
+        ws: null,
+        showGyro: false,
+        starting: false,
+        stopping: false,
+        isPaused: false,
+        advancing: false,          // guard against double-click on Next / Redo
+        _autoAdvanced: false,      // prevents auto-advance firing twice per stage
+        stageEventWarning: null,   // shown when a stage_event POST fails
+        stageIndex: 0,
+        stageStartTime: null,
+        stageElapsedSecs: 0,
+        stageTimeUp: false,
+        stageTimerStr: '',
+        _timerInterval: null,
+
+        // Stages are built dynamically in init() based on condition_order
+        stages: [],
+
+        get currentStage() {
+          return this.stages[this.stageIndex] || null;
+        },
+
+        _buildStages() {
+          const session = Alpine.store('session').currentSession;
+          const order = session?.condition_order || 'A-first';
+          const first = order === 'A-first' ? 'A' : 'B';
+          const second = order === 'A-first' ? 'B' : 'A';
+          const labelA = (session?.tempo_direction || 'speeding_up').replace('_', ' ');
+          const labelB = (session?.weight_direction || 'increasing').replace('_', ' ');
+          const descOf = (c) => c === 'A' ? `A: Tempo (${labelA})` : `B: Weight (${labelB})`;
+
+          // Build 3 sub-stages for each condition:
+          //   onset (15s, auto) → main (60s, auto) → offset (15s, manual → next condition)
+          const mkCond = (n, cond, phase, desc, flag) => {
+            const color = cond === 'A' ? '#F59E0B' : '#8B5CF6';
+            return [
+              { id: `condition_${n}_onset`,  label: `${desc} — Drift In`,  duration: 15, color, phase, condition: cond, flag, autoAdvance: true  },
+              { id: `condition_${n}`,        label: `${desc} — Main`,       duration: 60, color, phase, condition: cond, flag, autoAdvance: true  },
+              { id: `condition_${n}_offset`, label: `${desc} — Drift Out`,  duration: 15, color, phase, condition: cond, flag, autoAdvance: false },
+            ];
+          };
+
+          const all = [
+            { id: 'calibration',  label: 'Calibration',           duration: 120, color: '#3B82F6', phase: 1, flag: 'has_calibration' },
+            { id: 'audio_only',   label: 'Audio Familiarisation', duration: 120, color: '#10B981', phase: 2, flag: 'has_audio_familiarisation' },
+            ...mkCond(1, first,  first  === 'A' ? 3 : 4, descOf(first),  'has_condition_1'),
+            ...mkCond(2, second, second === 'A' ? 3 : 4, descOf(second), 'has_condition_2'),
+          ];
+          // If the session has the flag enabled (or undefined for legacy
+          // sessions, treat as on), include this stage.
+          this.stages = all.filter(s => session?.[s.flag] !== 0);
+        },
+
+        init() {
+          if (Alpine.store('nav').view !== 'live') return;
+
+          this._buildStages();
+
+          this.$nextTick(() => {
+            // No live chart in flash-buffer mode — recording happens on the
+            // insole's own flash. Just wire up keyboard shortcuts + timer.
+            initKeyboardShortcuts((phase) => this.sendPhase(phase));
+
+            // Stage timer
+            this._timerInterval = setInterval(() => {
+              if (!this.stageStartTime || !Alpine.store('session').isRecording || this.isPaused) return;
+              this.stageElapsedSecs = Math.floor((Date.now() - this.stageStartTime) / 1000);
+              const remaining = (this.currentStage?.duration || 0) - this.stageElapsedSecs;
+              this.stageTimeUp = remaining <= 0;
+
+              // Show countdown while time remains, elapsed after
+              if (remaining > 0) {
+                const m = String(Math.floor(remaining / 60)).padStart(2, '0');
+                const s = String(remaining % 60).padStart(2, '0');
+                this.stageTimerStr = `-${m}:${s}`;
+              } else {
+                const over = Math.abs(remaining);
+                const m = String(Math.floor(over / 60)).padStart(2, '0');
+                const s = String(over % 60).padStart(2, '0');
+                this.stageTimerStr = `+${m}:${s}`;
+              }
+
+              // Auto-advance when timer hits zero for stages marked autoAdvance: true
+              if (this.stageTimeUp && this.currentStage?.autoAdvance
+                  && !this.advancing && !this._autoAdvanced
+                  && this.stageIndex < this.stages.length - 1) {
+                this._autoAdvanced = true;   // prevent re-firing on subsequent ticks
+                this._doAdvanceStage();
+              }
+            }, 250);
+          });
+
+          window.onbeforeunload = (e) => {
+            if (Alpine.store('session').isRecording) {
+              e.preventDefault();
+              return '';
+            }
+          };
+        },
+
+        _connectWebSocket() {
+          if (this.ws) return;
+          this.ws = new SessionWebSocket({
+            onBatch: (samples) => {
+              if (this.chart) this.chart.pushBatch(samples);
+              if (samples.length > 0) {
+                const last = samples[samples.length - 1];
+                Alpine.store('session').lastDeviceMs = last.device_ms;
+                if (last.phase !== Alpine.store('session').currentPhase) {
+                  Alpine.store('session').setPhase(last.phase);
+                }
+              }
+            },
+            onBleStatus: (status, drops, latency) => {
+              Alpine.store('session').bleStatus = status;
+              Alpine.store('session').droppedPackets = drops;
+              if (latency && Object.keys(latency).length) Alpine.store('session').latency = latency;
+            },
+          });
+          this.ws.connect();
+        },
+
+        cleanup() {
+          if (this.chart) { this.chart.destroy(); this.chart = null; }
+          if (this.ws) { this.ws.close(); this.ws = null; }
+          if (this._timerInterval) { clearInterval(this._timerInterval); }
+          window.onbeforeunload = null;
+        },
+
+        _startStageTimer() {
+          this.stageStartTime = Date.now();
+          this.stageElapsedSecs = 0;
+          this.stageTimeUp = false;
+          this.stageTimerStr = '';
+          this._autoAdvanced = false;
+        },
+
+        // ── Flash-buffer mode ─────────────────────────────────────────────
+        // Recording is handled by the insole firmware writing to its own flash
+        // while Max owns the BLE connection. This app's role during the live
+        // view is to drive the staged timer flow and capture researcher tags.
+        // BLE / WebSocket / phase commands are deliberately NOT invoked here.
+
+        async _logStageEvent(stageId) {
+          // Record a stage transition on the server for later IMU dump
+          // segmentation. Failures are non-fatal — the live flow keeps going,
+          // but the researcher is warned so they can retry with Redo.
+          try {
+            const sessionId = Alpine.store('session').currentSessionId;
+            await api.post(`/api/sessions/${sessionId}/stage_events`, {
+              stage_id: stageId,
+              device_ms: Alpine.store('session').lastDeviceMs ?? null,
+            });
+          } catch (e) {
+            console.warn('Stage event POST failed:', e);
+            this.stageEventWarning = `Stage "${stageId}" not saved to server: ${e.message}. Tap ↩ Redo to re-log this transition.`;
+            clearTimeout(this._stageWarnTimeout);
+            this._stageWarnTimeout = setTimeout(() => { this.stageEventWarning = null; }, 12000);
+          }
+        },
+
+        async startRecording() {
+          this.starting = true;
+          try {
+            Alpine.store('session').isRecording = true;
+            this.isPaused = false;
+            this.stageIndex = 0;
+            this._startStageTimer();
+            Alpine.store('session').setPhase(this.currentStage?.phase ?? 0);
+            // Anchor: marks exact device_ms when this session began, so any
+            // pre-test flash data is cleanly separated in the IMU dump.
+            await this._logStageEvent('session_start');
+            await this._logStageEvent(this.currentStage?.id ?? 'calibration');
+          } finally {
+            this.starting = false;
+          }
+        },
+
+        async sendPhase(phase) {
+          // Local-only state update — the firmware auto-detects sync pulses
+          // from accel magnitude, and Max owns the BLE connection so we can't
+          // send phase commands directly. We DO log a host-side stage event
+          // for phase=9 (sync pulse) so the dump merger can align wall-clock
+          // to device_ms even when no live IMU stream is available.
+          if (this.isPaused) return;
+          Alpine.store('session').setPhase(phase);
+          if (phase === 9) {
+            await this._logStageEvent('sync_pulse');
+          }
+        },
+
+        async _doAdvanceStage() {
+          // Shared advance logic — no confirm dialog. Called by auto-advance
+          // (timer fires) and confirmNextStage() (manual button, after confirm).
+          if (this.advancing) return;
+          if (this.stageIndex >= this.stages.length - 1) return;
+          this.advancing = true;
+          try {
+            this.stageIndex++;
+            this._startStageTimer();   // also resets _autoAdvanced for the new stage
+            if (this.currentStage?.phase != null)
+              Alpine.store('session').setPhase(this.currentStage.phase);
+            await this._logStageEvent(this.currentStage?.id ?? 'unknown');
+          } finally {
+            this.advancing = false;
+          }
+        },
+
+        async confirmNextStage() {
+          if (this.advancing) return;
+          const next = this.stages[this.stageIndex + 1];
+          if (!next) return;
+          if (!confirm(`Move to: ${next.label}?`)) return;
+          await this._doAdvanceStage();
+        },
+
+        async redoStage() {
+          if (this.advancing) return;
+          if (!confirm(`Mark a redo for "${this.currentStage?.label}"?\n\nThis records a new start point at the current device timestamp so the first attempt and the redo are separated in the dumped IMU data.`)) return;
+          this.advancing = true;
+          try {
+            this.stageElapsedSecs = 0;
+            this._startStageTimer();
+            await this._logStageEvent(this.currentStage?.id ?? 'unknown');
+          } finally {
+            this.advancing = false;
+          }
+        },
+
+        async pauseRecording() {
+          // Pause is purely visual in flash-buffer mode — the insole keeps
+          // logging regardless. The pause state still gates phase commands
+          // and stops the stage timer for the researcher's benefit.
+          this.isPaused = true;
+        },
+
+        async resumeRecording() {
+          this.isPaused = false;
+        },
+
+        async stopRecording() {
+          if (!confirm('End the session timer? Then dump each insole over USB on the post-session screen.')) return;
+          this.stopping = true;
+          try {
+            // Anchor: marks exact device_ms when session ended, so post-test
+            // flash data collected while waiting to plug in USB is separated.
+            await this._logStageEvent('session_end');
+            Alpine.store('session').isRecording = false;
+            this.isPaused = false;
+            this.cleanup();
+            const sessionId = Alpine.store('session').currentSessionId;
+            window.location.hash = `#/session/${sessionId}/post`;
+          } finally {
+            this.stopping = false;
+          }
+        },
+      };
+    }
+
+    // Post-session
+    function postSessionData() {
+      return {
+        recordingResult: window._recordingResult || null,
+        mergePreview: [],
+        mergeWarnings: [],
+        mergeError: null,
+        calibration: [],
+        syncAlignment: null,
+        totalRows: 0,
+        merging: false,
+        merged: false,
+
+        async runMerge() {
+          this.merging = true;
+          this.mergeError = null;
+          try {
+            const sessionId = Alpine.store('session').currentSessionId;
+            const result = await api.post(`/api/pressure/${sessionId}/merge`);
+            this.mergePreview = result.preview;
+            this.mergeWarnings = result.warnings;
+            this.totalRows = result.total_rows;
+            this.calibration = result.calibration || [];
+            this.syncAlignment = result.sync_alignment || null;
+          } catch (e) {
+            this.mergeError = e.message;
+          } finally {
+            this.merging = false;
+          }
+        },
+
+        async confirmMerge() {
+          try {
+            const sessionId = Alpine.store('session').currentSessionId;
+            await api.post(`/api/pressure/${sessionId}/confirm`);
+            this.merged = true;
+          } catch (e) {
+            this.mergeError = e.message;
+          }
+        },
+
+        goToQuestionnaire() {
+          const sessionId = Alpine.store('session').currentSessionId;
+          window.location.hash = `#/session/${sessionId}/questionnaire`;
+        },
+      };
+    }
+
+
+    // Session detail
+    function detailData() {
+      return {
+        session: null,
+        questionnaire: { consciousness: null, ratings: null },
+        loading: false,
+        loadError: null,
+        editing: false,
+        savingEdit: false,
+        editError: null,
+        editForm: {},
+        fileUploads: {},   // keyed by file_type: { uploading, success, error }
+        baselineBpm: null,
+        baselineBpmSources: [],
+        folderFiles: null,
+        folderFilesError: null,
+        loadingFolderFiles: false,
+
+        init() {
+          this.$watch('$store.nav.view', (v) => {
+            if (v === 'detail') this.loadDetail();
+          });
+          if (Alpine.store('nav').view === 'detail') this.loadDetail();
+        },
+
+        async loadDetail() {
+          const id = Alpine.store('session').currentSessionId;
+          if (!id) return;
+          this.editing = false;
+          this.editError = null;
+          this.loading = true;
+          this.loadError = null;
+          try {
+            this.session = await api.get(`/api/sessions/${id}`);
+            try {
+              const summary = await api.get(`/api/questionnaires/${id}`);
+              this.questionnaire = {
+                consciousness: summary.consciousness || null,
+                ratings: summary.ratings || null,
+              };
+            } catch {
+              this.questionnaire = { consciousness: null, ratings: null };
+            }
+          } catch (e) {
+            console.error('Failed to load session detail:', e);
+            this.loadError = e.message || 'Could not load session data.';
+          } finally {
+            this.loading = false;
+          }
+          // Load baseline BPM for full-study sessions (Test 4 / Test 5) — non-blocking
+          if (this.session?.test_type_name?.match(/^Test [45]/)) {
+            api.get(`/api/sessions/${id}/baseline-bpm`).then(r => {
+              this.baselineBpm = r.baseline_bpm;
+              this.baselineBpmSources = r.sources || [];
+            }).catch(() => {});
+          }
+          // Load folder file list (non-blocking — runs after main session load)
+          this.loadFolderFiles();
+        },
+
+        async loadFolderFiles() {
+          if (!this.session) return;
+          this.loadingFolderFiles = true;
+          this.folderFilesError = null;
+          try {
+            this.folderFiles = await api.get(`/api/sessions/${this.session.session_id}/folder-files`);
+          } catch (e) {
+            this.folderFilesError = e.message;
+          } finally {
+            this.loadingFolderFiles = false;
+          }
+        },
+
+        startEdit() {
+          const s = this.session;
+          // Format date as datetime-local string (YYYY-MM-DDTHH:MM) in local timezone
+          let dateVal = '';
+          if (s.session_date) {
+            try {
+              const _pd = typeof parseDate === 'function' ? parseDate : d => !d ? new Date(NaN) : (d.includes(' ') && !d.includes('T') ? new Date(d.replace(' ', 'T') + 'Z') : new Date(d));
+              const dt = _pd(s.session_date);
+              const local = new Date(dt.getTime() - dt.getTimezoneOffset() * 60000);
+              dateVal = local.toISOString().slice(0, 16);
+            } catch {}
+          }
+          this.editForm = {
+            session_date:    dateVal,
+            condition_order: s.condition_order  || '',
+            tempo_direction: s.tempo_direction  || '',
+            weight_direction: s.weight_direction || '',
+            notes_setup:     s.notes_setup      || '',
+            notes_use:       s.notes_use        || '',
+            notes_data:      s.notes_data       || '',
+            notes:           s.notes            || '',
+          };
+          this.editing = true;
+          this.editError = null;
+          this.fileUploads = {};
+        },
+
+        cancelEdit() {
+          this.editing = false;
+          this.editError = null;
+          this.fileUploads = {};
+        },
+
+        async uploadFile(fileType, file) {
+          if (!file) return;
+          this.fileUploads = { ...this.fileUploads, [fileType]: { uploading: true, success: false, error: null } };
+          try {
+            const fd = new FormData();
+            fd.append('file', file);
+            const resp = await fetch(
+              `/api/sessions/${this.session.session_id}/upload-file?file_type=${fileType}`,
+              { method: 'POST', body: fd }
+            );
+            if (!resp.ok) {
+              const e = await resp.json().catch(() => ({}));
+              throw new Error(e.detail || resp.statusText);
+            }
+            this.session = await resp.json();
+            this.fileUploads = { ...this.fileUploads, [fileType]: { uploading: false, success: true, error: null } };
+          } catch (e) {
+            this.fileUploads = { ...this.fileUploads, [fileType]: { uploading: false, success: false, error: e.message } };
+          }
+        },
+
+        async saveEdit() {
+          this.savingEdit = true;
+          this.editError = null;
+          try {
+            const payload = { ...this.editForm };
+            // Convert empty strings to null for optional fields
+            ['session_date', 'condition_order', 'tempo_direction', 'weight_direction']
+              .forEach(k => { if (!payload[k]) payload[k] = null; });
+            // Preserve file paths — managed via the upload zones, not this form
+            payload.pressure_raw_path = this.session.pressure_raw_path || null;
+            payload.cal_file_1_path   = this.session.cal_file_1_path   || null;
+            payload.cal_file_2_path   = this.session.cal_file_2_path   || null;
+            payload.cal_file_3_path   = this.session.cal_file_3_path   || null;
+
+            // Warn if condition assignment fields are being changed — accidental
+            // changes here affect data analysis and can't be auto-detected later.
+            const condFields = ['condition_order', 'tempo_direction', 'weight_direction'];
+            const condChanged = condFields.some(k => this.session[k] && payload[k] !== this.session[k]);
+            if (condChanged) {
+              const ok = confirm('⚠ You are changing condition assignment (order / tempo / weight).\n\nThis affects data analysis and cannot be automatically detected later. Are you sure?');
+              if (!ok) { this.savingEdit = false; return; }
+            }
+
+            this.session = await api.patch(`/api/sessions/${this.session.session_id}`, payload);
+            this.editing = false;
+            Alpine.store('session').loadSessions();
+          } catch (e) {
+            this.editError = e.message || 'Failed to save changes.';
+          } finally {
+            this.savingEdit = false;
+          }
+        },
+
+        async deleteSession() {
+          if (!this.session) return;
+          const s = this.session;
+          if (!confirm(`Delete session for ${s.participant_id}? Data files will be archived, not permanently deleted.`)) return;
+          try {
+            await fetch(`/api/sessions/${s.session_id}`, { method: 'DELETE' });
+            Alpine.store('session').loadSessions();
+            window.location.hash = '#/history';
+          } catch (e) {
+            alert('Delete failed: ' + e.message);
+          }
+        },
+      };
+    }
+
+    // Diagnostics
+    // Test Types admin page
+    function testTypesData() {
+      const FLAGS = [
+        'has_calibration', 'has_calibration_files', 'has_audio_familiarisation',
+        'has_condition_1', 'has_condition_2',
+        'has_imu_dump', 'has_pressure_merge',
+        'has_consciousness_check', 'has_overall_ratings',
+      ];
+      const blank = () => ({
+        test_type_id: null,
+        name: '',
+        description: '',
+        target_participants: 0,
+        has_calibration_b: true,
+        has_calibration_files_b: false,
+        has_audio_familiarisation_b: true,
+        has_condition_1_b: true,
+        has_condition_2_b: true,
+        has_imu_dump_b: true,
+        has_pressure_merge_b: true,
+        has_consciousness_check_b: true,
+        has_overall_ratings_b: true,
+      });
+      return {
+        testTypes: [],
+        editing: null,
+        saving: false,
+        error: null,
+
+        async init() {
+          await this.refresh();
+          this.$watch('$store.nav.view', v => { if (v === 'test_types') this.refresh(); });
+        },
+
+        async refresh() {
+          try {
+            this.testTypes = sortTestTypes(await api.get('/api/test_types'));
+          } catch (e) {
+            console.error('Failed to load test types:', e);
+          }
+        },
+
+        newType() {
+          this.editing = blank();
+          this.error = null;
+        },
+
+        editType(t) {
+          const e = blank();
+          e.test_type_id = t.test_type_id;
+          e.name = t.name;
+          e.description = t.description || '';
+          e.target_participants = t.target_participants || 0;
+          for (const f of FLAGS) e[f + '_b'] = !!t[f];
+          this.editing = e;
+          this.error = null;
+        },
+
+        cancelEdit() { this.editing = null; this.error = null; },
+
+        async saveType() {
+          if (!this.editing) return;
+          this.saving = true;
+          this.error = null;
+          const payload = {
+            name: this.editing.name.trim(),
+            description: this.editing.description || '',
+            target_participants: this.editing.target_participants || 0,
+          };
+          for (const f of FLAGS) payload[f] = this.editing[f + '_b'] ? 1 : 0;
+          try {
+            if (this.editing.test_type_id) {
+              await api.put(`/api/test_types/${this.editing.test_type_id}`, payload);
+            } else {
+              await api.post('/api/test_types', payload);
+            }
+            this.editing = null;
+            await this.refresh();
+          } catch (e) {
+            this.error = e.message;
+          } finally {
+            this.saving = false;
+          }
+        },
+
+        async archiveType(t) {
+          if (!confirm(`Archive "${t.name}"? Existing sessions are unaffected; this just hides it from the dropdown.`)) return;
+          try {
+            await fetch(`/api/test_types/${t.test_type_id}`, { method: 'DELETE' });
+            await this.refresh();
+          } catch (e) {
+            alert('Archive failed: ' + e.message);
+          }
+        },
+      };
+    }
+
+    function diagnosticsData() {
+      return {
+        tests: [],
+        results: {},   // test_id -> result dict
+        running: {},   // test_id -> bool
+
+        async init() {
+          try {
+            const tests = await api.get('/api/diagnostics/tests');
+            // Initialize running map with all keys explicitly set to false
+            // (Alpine reactivity on dynamic keys of an empty object can be flaky)
+            const runningInit = {};
+            for (const t of tests) runningInit[t.id] = false;
+            this.running = runningInit;
+            this.tests = tests;
+          } catch (e) {
+            console.error('Failed to load diagnostics tests:', e);
+          }
+        },
+
+        async runTest(testId) {
+          this.running[testId] = true;
+          // Trigger Alpine reactivity for nested object
+          this.running = { ...this.running };
+          try {
+            const result = await api.post(`/api/diagnostics/run/${testId}`);
+            this.results[testId] = result;
+            this.results = { ...this.results };
+          } catch (e) {
+            this.results[testId] = {
+              status: 'fail',
+              message: e.message,
+              details: [],
+              duration_ms: 0,
+            };
+            this.results = { ...this.results };
+          } finally {
+            this.running[testId] = false;
+            this.running = { ...this.running };
+          }
+        },
+      };
+    }
+  </script>
+</body>
+</html>

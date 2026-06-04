@@ -1,0 +1,22 @@
+pid,direction,order,category,influence_score,correct_early,correct_mid,plateau_drop,pct_achieved,baseline_spm,agency_q1,agency_q2,agency_q3,agency_aggregate,ueqs_pragmatic,ari_immersion,tempo_noticed,tempo_guess,tempo_correct,post_noticed,post_tempo_guess,post_tempo_correct
+03,speeding up,tempo first,Consistent influence,1.0,1.249,1.644,-0.3949,-20.4,199.6,8,6,7,7.0,1.75,4.714285714285714,0,,,0,,
+05,speeding up,weight first,Consistent influence,0.283,0.3434,0.4246,-0.0811,60.7,197.8,8,6,6,6.666666666666667,1.25,3.857142857142857,0,,,0,,
+07,slowing down,weight first,No clear effect,0.0,-0.5852,-0.7378,0.1526,-34.6,214.5,10,9,9,9.333333333333334,3.0,6.428571428571429,0,,,0,,
+09,slowing down,tempo first,Consistent influence,0.8217,1.1071,1.2325,-0.1254,36.6,188.6,10,10,7,9.0,2.0,5.428571428571429,1,speeding_up,0.0,0,,
+10,slowing down,tempo first,No clear effect,0.0,-1.1167,-1.7787,0.662,13.3,189.2,10,10,9,9.666666666666666,2.5,6.0,0,,,0,,
+11,speeding up,weight first,No clear effect,0.0,-1.0908,-0.65,-0.4408,-114.8,220.0,10,8,10,9.333333333333334,2.5,3.4285714285714284,0,,,0,,
+13,speeding up,tempo first,Impact only from drift phases,0.464,0.6961,-0.7238,1.4198,81.4,197.5,7,6,3,5.333333333333333,2.5,3.2857142857142856,0,,,0,,
+16,slowing down,weight first,No clear effect,0.0,-0.547,-0.4227,-0.1243,84.0,175.8,8,7,7,7.333333333333333,0.25,4.714285714285714,0,,,0,,
+18,speeding up,tempo first,No clear effect,0.0,-1.0387,-1.3214,0.2828,23.0,193.3,8,8,7,7.666666666666667,1.0,5.428571428571429,0,,,0,,
+19,speeding up,weight first,Impact only from drift phases,0.9741,1.4611,0.6863,0.7748,27.0,186.5,7,7,6,6.666666666666667,2.0,5.857142857142857,0,,,0,,
+30,speeding up,tempo first,No clear effect,0.0,-0.9728,-1.8294,0.8566,-180.1,184.1,9,8,7,8.0,1.75,5.428571428571429,0,,,0,,
+31,slowing down,weight first,Subconscious correction,0.0725,-0.7198,0.1087,-0.8285,15.7,228.4,8,8,4,6.666666666666667,1.5,3.2857142857142856,0,,,0,,
+32,slowing down,weight first,Subconscious correction,0.4919,-0.0066,0.7378,-0.7444,22.9,215.9,4,3,3,3.3333333333333335,0.75,3.5714285714285716,0,,,0,no_change,0.0
+33,speeding up,weight first,No clear effect,0.0,-1.2052,-1.6296,0.4244,-48.7,216.5,6,6,6,6.0,1.0,5.142857142857143,0,,,0,no_change,0.0
+34,speeding up,weight first,Impact only from drift phases,1.0,2.0297,1.8431,0.1866,-4.3,173.3,10,10,7,9.0,1.5,5.142857142857143,0,,,0,,
+35,slowing down,tempo first,Consistent influence,0.2613,0.3919,0.3807,0.0112,12.9,180.5,7,6,2,5.0,-1.0,3.0,0,,,1,slowing_down,1.0
+36,speeding up,tempo first,Subconscious correction,0.3558,-0.146,0.5337,-0.6796,135.7,179.4,7,5,8,6.666666666666667,0.25,4.857142857142857,0,,,0,,
+37,speeding up,weight first,Consistent influence,0.4871,0.2665,0.7306,-0.4641,-33.2,217.6,9,10,9,9.333333333333334,1.0,3.857142857142857,0,,,0,,
+38,slowing down,tempo first,Consistent influence,1.0,0.5251,1.7804,-1.2553,165.8,224.6,7,5,4,5.333333333333333,1.25,3.857142857142857,0,,,0,,
+39,speeding up,weight first,Impact only from drift phases,0.9862,1.4793,1.1061,0.3732,64.6,218.5,5,5,5,5.0,1.25,4.571428571428571,0,,,0,,
+40,speeding up,weight first,Subconscious correction,0.0443,-1.1679,0.0665,-1.2344,32.1,185.6,9,10,10,9.666666666666666,0.75,5.428571428571429,0,,,0,,
